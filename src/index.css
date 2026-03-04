@@ -1,0 +1,41 @@
+/* ===== リセット & ベース ===== */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --color-bg: #0a0e27;
+  --color-surface: rgba(20, 16, 40, 0.85);
+  --color-surface-hover: rgba(30, 24, 60, 0.9);
+  --color-text: #e8e0f0;
+  --color-text-dim: #9890a8;
+  --color-accent: #fff9c4;
+  --color-accent-warm: #ffe082;
+  --color-border: rgba(200, 191, 224, 0.15);
+  --color-star-real: #ffd54f;
+  --font-main: 'Klee One', 'Zen Maru Gothic', 'Hiragino Maru Gothic Pro', sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-main);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
