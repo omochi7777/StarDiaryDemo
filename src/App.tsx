@@ -191,7 +191,13 @@ function App() {
     }, []);
 
     const handleToggleInputTray = useCallback(() => {
-        setIsInputTrayOpen((open) => !open);
+        setIsInputTrayOpen((open) => {
+            const nextOpen = !open;
+            if (!nextOpen) {
+                setExpandedTabKey(null);
+            }
+            return nextOpen;
+        });
     }, []);
 
     const showToast = useCallback((message: string, durationMs = 3200) => {
@@ -252,6 +258,7 @@ function App() {
         if (!isSkyUiHidden) {
             setIsSkySettingsOpen(false);
             setIsInputTrayOpen(false);
+            setExpandedTabKey(null);
             setIsSkyUiHidden(true);
             return;
         }
@@ -831,6 +838,7 @@ function App() {
     const expandedTab = expandedTabKey
         ? REFLECTION_TABS.find((tab) => tab.key === expandedTabKey) ?? null
         : null;
+    const isCheckinSubmenuOpen = viewMode === 'sky' && expandedTab !== null;
     const checkinStatusText = isDailyLimitReached
         ? '星にしたい言葉を選ぶ　明日また追加できます。'
         : isSubmitting
@@ -1008,14 +1016,16 @@ function App() {
                         </div>
                     </div>
 
-                    <button
-                        type="button"
-                        className={`sky-settings-fab ${isSkySettingsOpen ? 'active' : ''}`}
-                        onClick={() => setIsSkySettingsOpen((open) => !open)}
-                        aria-label="表示設定を開く"
-                    >
-                        ⚙ 設定
-                    </button>
+                    {!isCheckinSubmenuOpen && (
+                        <button
+                            type="button"
+                            className={`sky-settings-fab ${isSkySettingsOpen ? 'active' : ''}`}
+                            onClick={() => setIsSkySettingsOpen((open) => !open)}
+                            aria-label="表示設定を開く"
+                        >
+                            ⚙ 設定
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -1085,14 +1095,16 @@ function App() {
             )}
 
             {/* ヘルプボタン */}
-            <button
-                type="button"
-                className="help-fab"
-                onClick={() => setIsHelpOpen(true)}
-                aria-label="使い方を見る"
-            >
-                ?
-            </button>
+            {!isCheckinSubmenuOpen && (
+                <button
+                    type="button"
+                    className="help-fab"
+                    onClick={() => setIsHelpOpen(true)}
+                    aria-label="使い方を見る"
+                >
+                    ?
+                </button>
+            )}
 
             {/* ヘルプモーダル */}
             {isHelpOpen && (
