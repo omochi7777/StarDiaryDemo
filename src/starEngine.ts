@@ -282,12 +282,19 @@ export interface AddStarResult {
     isRealConstellation?: boolean;
 }
 
+export interface AddStarStyle {
+    color?: string;
+    size?: number;
+    brightness?: number;
+}
+
 const STARS_PER_CONSTELLATION = 5;
 
 export async function addStar(
     achievementId: number,
     canvasWidth: number,
     canvasHeight: number,
+    style?: AddStarStyle,
 ): Promise<AddStarResult> {
     const occupied = await getOccupiedCells();
 
@@ -323,15 +330,17 @@ export async function addStar(
     const jitterY = Math.random() * 2 - 1;
     const pos = gridToCanvas(cell.gridX, cell.gridY, canvasWidth, canvasHeight, jitterX, jitterY);
 
-    const color = STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)];
+    const color = style?.color ?? STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)];
+    const brightness = style?.brightness ?? (0.8 + Math.random() * 0.2);
+    const size = style?.size ?? (2.5 + Math.random() * 1.5);
 
     const starId = await db.stars.add({
         x: pos.x,
         y: pos.y,
         gridX: cell.gridX,
         gridY: cell.gridY,
-        brightness: 0.8 + Math.random() * 0.2,
-        size: 2.5 + Math.random() * 1.5,
+        brightness,
+        size,
         color,
         achievementId,
         constellationId: constellation.id!,

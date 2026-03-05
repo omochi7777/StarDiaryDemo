@@ -192,12 +192,10 @@
     background: rgba(110, 30, 40, 0.35);
 }
 
-/* ===== 入力フォーム ===== */
+/* ===== チェックイントレイ ===== */
 
 .input-form {
-    /* スマホ時: 紙+入力+ボタンを含むトレイの見た目高さ */
-    --entry-height: 88px;
-    /* スマホ時: 閉じた状態で見える矢印エリアの高さ */
+    --entry-height: 180px;
     --tray-handle-height: 20px;
     position: absolute;
     bottom: 0;
@@ -233,103 +231,113 @@
 }
 
 .input-form-content {
-    /* スマホ時: 紙と送信ボタンの間隔 */
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    /* スマホ時: トレイ内余白（下はセーフエリア考慮） */
+    display: block;
     padding: 5px 8px;
     padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
     overflow: visible;
 }
 
-.input-paper {
-    flex: 1;
+.checkin-panel {
+    width: 100%;
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     min-height: var(--entry-height);
-    overflow: visible;
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
 }
 
 .input-paper-image {
-    /* スマホ時: 紙画像の表示倍率 */
-    width: 110%;
-    max-width: none;
-    height: auto;
-    display: block;
-    /* スマホ時: 紙画像を少し右にずらして中央寄せ補正 */
-    transform: translateX(4%);
-    pointer-events: none;
-    user-select: none;
-}
-
-.achievement-input {
     position: absolute;
-    /* スマホ時: 入力テキスト領域の左右位置 */
-    left: 24%;
-    right: 20%;
-    /* スマホ時: 入力テキストの上下位置 */
-    top: 59%;
-    transform: translateY(-50%);
-    font-family: var(--font-main);
-    /* スマホ時: 入力フォントサイズ */
-    font-size: 12px;
-    color: #2d2118;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    padding: 0;
-    outline: none;
-    transition: opacity 0.2s ease;
-}
-
-.achievement-input::placeholder {
-    color: rgba(80, 58, 38, 0.45);
-}
-
-.achievement-input:focus {
-    border: 0;
-    box-shadow: none;
-}
-
-.submit-btn {
-    /* スマホ時: 送信ボタンの大きさ（紙高さに対する比率） */
-    height: calc(var(--entry-height) * 0.32);
-    aspect-ratio: 107 / 85;
-    /* スマホ時: 紙に重ねるため左へ寄せる量（レイアウト非依存） */
-    --submit-shift-x: -70px;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-    transition: transform 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    transform: translateX(var(--submit-shift-x));
-}
-
-.submit-btn-image {
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
     display: block;
+    pointer-events: none;
+    user-select: none;
 }
 
-.submit-btn:hover:not(:disabled) {
-    transform: translateX(var(--submit-shift-x)) scale(1.05);
-    filter: brightness(1.05);
+.checkin-panel-content {
+    position: absolute;
+    inset: 20px 22px 18px;
+    color: #2d2118;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto 1fr auto;
+    row-gap: 6px;
+    column-gap: 8px;
 }
 
-.submit-btn:active:not(:disabled) {
-    transform: translateX(var(--submit-shift-x)) scale(0.95);
+.checkin-title {
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 700;
+    color: #2d2118;
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
 }
 
-.submit-btn:disabled {
-    opacity: 0.3;
+.checkin-counter {
+    font-family: var(--font-main);
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(61, 43, 30, 0.88);
+    grid-column: 2 / 3;
+    grid-row: 1 / 2;
+    justify-self: end;
+}
+
+.checkin-grid {
+    grid-column: 1 / 3;
+    grid-row: 2 / 4;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    align-content: start;
+}
+
+.checkin-option-btn {
+    min-height: 32px;
+    border: 1px solid rgba(90, 60, 44, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.34);
+    color: #3f2e22;
+    font-family: var(--font-main);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.checkin-option-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.5);
+    border-color: rgba(90, 60, 44, 0.38);
+}
+
+.checkin-option-btn:disabled {
+    opacity: 0.48;
     cursor: not-allowed;
+}
+
+.checkin-option-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 8px rgba(255, 241, 168, 0.45);
+}
+
+.checkin-note {
+    grid-column: 1 / 3;
+    grid-row: 4 / 5;
+    font-size: 11px;
+    color: rgba(64, 44, 32, 0.8);
+    line-height: 1.4;
 }
 
 /* ===== 表示設定 ===== */
@@ -396,11 +404,11 @@
 }
 
 .app.input-tray-open .sky-settings-fab {
-    bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(230px + env(safe-area-inset-bottom, 0px));
 }
 
 .app.input-tray-open .sky-settings-sheet {
-    bottom: calc(196px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(276px + env(safe-area-inset-bottom, 0px));
 }
 
 .sky-settings-title {
@@ -709,38 +717,42 @@
 
 @media (min-width: 768px) {
     .input-form {
-        /* PC時: トレイ高さを戻す */
-        --entry-height: 122px;
+        --entry-height: 214px;
         max-width: 520px;
         left: 50%;
         transform: translateX(-50%);
     }
 
     .input-form-content {
-        /* PC時: 間隔・余白を広めに戻す */
-        gap: 10px;
         padding: 8px 14px;
         padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
     }
 
-    .input-paper-image {
-        /* PC時: 紙画像を大きめ表示に戻す */
-        width: 200%;
-        transform: translateX(0);
+    .checkin-panel-content {
+        inset: 24px 28px 22px;
+        row-gap: 8px;
     }
 
-    .achievement-input {
-        /* PC時: 入力位置・文字サイズを戻す */
-        left: 19%;
-        right: 24%;
-        top: 58%;
+    .checkin-title {
         font-size: 15px;
     }
 
-    .submit-btn {
-        /* PC時: ボタンサイズと位置を戻す */
-        height: calc(var(--entry-height) * 0.5);
-        --submit-shift-x: 0px;
+    .checkin-counter {
+        font-size: 13px;
+    }
+
+    .checkin-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 7px;
+    }
+
+    .checkin-option-btn {
+        min-height: 36px;
+        font-size: 12px;
+    }
+
+    .checkin-note {
+        font-size: 12px;
     }
 
     .input-form:not(.open) {
@@ -774,11 +786,11 @@
     }
 
     .app.input-tray-open .sky-settings-fab {
-        bottom: 136px;
+        bottom: 224px;
     }
 
     .app.input-tray-open .sky-settings-sheet {
-        bottom: 182px;
+        bottom: 270px;
     }
 
     .sky-share-fab {
