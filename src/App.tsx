@@ -1147,6 +1147,16 @@ function App() {
                         >
                             はじめる ✦
                         </button>
+                        <p className="help-about-meta">
+                            <a
+                                href="/terms.html"
+                                className="help-about-link"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                このアプリについて　powered by tane
+                            </a>
+                        </p>
                     </div>
                 </div>
             )}

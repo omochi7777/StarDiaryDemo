@@ -927,6 +927,26 @@
     transform: translateY(0) scale(0.98);
 }
 
+.help-about-meta {
+    margin-top: 10px;
+    text-align: center;
+}
+
+.help-about-link {
+    display: inline-block;
+    font-family: var(--font-main);
+    font-size: 11px;
+    color: rgba(58, 48, 80, 0.72);
+    text-decoration: underline;
+    text-decoration-color: rgba(58, 48, 80, 0.35);
+    text-underline-offset: 2px;
+}
+
+.help-about-link:hover {
+    color: rgba(48, 38, 70, 0.95);
+    text-decoration-color: rgba(48, 38, 70, 0.7);
+}
+
 /* ===== レスポンシブ ===== */
 
 @media (min-width: 768px) {
