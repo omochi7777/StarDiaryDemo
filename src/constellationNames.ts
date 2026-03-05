@@ -44,32 +44,68 @@ const constellationNames: string[] = [
     'しおかぜ座',
     'つばめのしっぽ座',
     'こだまの森座',
-];
-
-// 実在の星座名リスト（レア枠）
-const realConstellationNames: string[] = [
-    'オリオン座',
-    'カシオペヤ座',
-    'おおぐま座',
-    'こぐま座',
-    'さそり座',
-    'はくちょう座',
-    'こと座',
-    'わし座',
-    'おうし座',
-    'ふたご座',
+    // 新しく追加した星座 (50個)
+    'はちみつドロップ座',
+    'さえずり座',
+    'おひるねねこ座',
+    'ほしくずの泉座',
+    'ゆりかご座',
+    'ぎんのすず座',
+    'ひだまり座',
+    'ほしふるの原座',
+    'さんぽみち座',
+    'あまつぶ座',
+    'たんぽぽのわたげ座',
+    'ことりのうた座',
+    'しろくまのあくび座',
+    'にじの橋座',
+    'あわゆき座',
+    'かたつむりのつの座',
+    'ほしのまたたき座',
+    'ゆうぐれのさんぽ座',
+    'あさやけ座',
+    'つきのしずく座',
+    'かざぐるま座',
+    'きらめき座',
+    'オルゴール座',
+    'こぐまのワルツ座',
+    'ほしふくろう座',
+    'よあけのこかげ座',
+    'みずたまり座',
+    'えほんの小箱座',
+    'どんぐりの森座',
+    'つむじかぜ座',
+    'ゆきだるま座',
+    'ガラスのくつ座',
+    'あまのがわの小舟座',
+    'ティーカップ座',
+    'マシュマロ雲座',
+    'しゃぼんだま座',
+    'はねやすめ座',
+    'きのこのおうち座',
+    'さくらの花びら座',
+    'きつねのしっぽ座',
+    'あまつばめ座',
+    'ふかふか毛布座',
+    'ゆめみるくじら座',
+    'はなの冠座',
+    'ひみつの手紙座',
+    'ペンギンのおさんぽ座',
+    'ほしあつめ座',
+    'ゆうべの祈り座',
+    'きんの鍵穴座',
+    'よつばのクローバー座',
 ];
 
 let usedNames = new Set<string>();
 
-export function getRandomConstellationName(isReal: boolean): string {
-    const list = isReal ? realConstellationNames : constellationNames;
-    const available = list.filter((n) => !usedNames.has(n));
+export function getRandomConstellationName(): string {
+    const available = constellationNames.filter((n) => !usedNames.has(n));
 
     if (available.length === 0) {
         // 全部使い切ったらリセット
         usedNames = new Set<string>();
-        return getRandomConstellationName(isReal);
+        return getRandomConstellationName();
     }
 
     const name = available[Math.floor(Math.random() * available.length)];

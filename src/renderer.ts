@@ -1,13 +1,13 @@
 // ===== Canvas描画エンジン =====
 // 絵本テイストの夜空を描画する
 
-import type { Star, ConstellationLine } from './db';
+import type { Star } from './db';
 import { gridToCanvas } from './starEngine';
 import tree01Url from '../assets/tree01.png';
 import tree02Url from '../assets/tree02.png';
 import cloudUrl from '../assets/cloud.png';
 import cloud02Url from '../assets/cloud02.png';
-import textureUrl from '../assets/texture.png';
+import texture02Url from '../assets/texture02.png';
 
 // ===== 背景星（固定の飾り） =====
 
@@ -58,12 +58,12 @@ if (typeof Image !== 'undefined') {
     cloud02Image = img2;
 }
 
-// texture.png 画像（絵本風の紙テクスチャ）
+// texture02.png 画像（絵本風の紙テクスチャ）
 let textureImage: HTMLImageElement | null = null;
 if (typeof Image !== 'undefined') {
     const img = new Image();
     img.decoding = 'async';
-    img.src = textureUrl;
+    img.src = texture02Url;
     textureImage = img;
 }
 
@@ -284,7 +284,7 @@ function drawSkyGradient(ctx: CanvasRenderingContext2D, w: number, h: number, sk
 
 function drawTextureOverlay(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     const img = textureImage;
-    if (!img || !img.complete || img.naturalWidth === 0) return;
+    if (!img || !img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
 
     ctx.save();
     // soft-light で重ねると夜空の暗さを保ちつつ和紙の凹凸感が出る
@@ -889,7 +889,6 @@ export interface RenderState {
     canvasWidth: number;
     canvasHeight: number;
     hoveredStarId: number | null;
-    hoveredAchievementText: string | null;
     camera: { x: number; y: number; scale: number };
 }
 
@@ -978,63 +977,4 @@ export function render(
     // 地面（スクリーン空間・手前）
     drawGround(ctx, w, h, time);
 
-    // ホバー中の星のツールチップ（スクリーン座標に変換）
-    if (state.hoveredStarId !== null && state.hoveredAchievementText) {
-        const star = state.stars.find((s) => s.id === state.hoveredStarId);
-        if (star) {
-            const sx = star.x * camera.scale + camera.x;
-            const sy = star.y * camera.scale + camera.y;
-            drawTooltip(ctx, sx, sy, state.hoveredAchievementText, w);
-        }
-    }
-}
-
-function drawTooltip(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, canvasW: number): void {
-    ctx.save();
-
-    ctx.font = '400 13px "Zen Maru Gothic", sans-serif';
-    const metrics = ctx.measureText(text);
-    const textW = metrics.width;
-    const padX = 12;
-    const padY = 8;
-    const boxW = textW + padX * 2;
-    const boxH = 28;
-
-    // 画面端でのはみ出し防止
-    let boxX = x - boxW / 2;
-    if (boxX < 8) boxX = 8;
-    if (boxX + boxW > canvasW - 8) boxX = canvasW - 8 - boxW;
-    const boxY = y - boxH - 15;
-
-    // 背景（すりガラス風）
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = '#1a1535';
-    ctx.beginPath();
-    const r = 8;
-    ctx.moveTo(boxX + r, boxY);
-    ctx.lineTo(boxX + boxW - r, boxY);
-    ctx.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + r);
-    ctx.lineTo(boxX + boxW, boxY + boxH - r);
-    ctx.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - r, boxY + boxH);
-    ctx.lineTo(boxX + r, boxY + boxH);
-    ctx.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - r);
-    ctx.lineTo(boxX, boxY + r);
-    ctx.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
-    ctx.closePath();
-    ctx.fill();
-
-    // ボーダー
-    ctx.globalAlpha = 0.3;
-    ctx.strokeStyle = '#c8bfe0';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-
-    // テキスト
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#e8e0f0';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, boxX + boxW / 2, boxY + boxH / 2);
-
-    ctx.restore();
 }

@@ -279,7 +279,6 @@ export interface AddStarResult {
     connectedTo: Star | null;
     constellationCompleted: boolean;
     constellationName?: string;
-    isRealConstellation?: boolean;
 }
 
 export interface AddStarStyle {
@@ -291,10 +290,10 @@ export interface AddStarStyle {
 const STARS_PER_CONSTELLATION = 5;
 
 export async function addStar(
-    achievementId: number,
     canvasWidth: number,
     canvasHeight: number,
     style?: AddStarStyle,
+    createdAt?: Date,
 ): Promise<AddStarResult> {
     const occupied = await getOccupiedCells();
 
@@ -303,17 +302,10 @@ export async function addStar(
         .filter((c) => !c.completedAt)
         .first();
 
-    const completedCount = await db.constellations
-        .filter((c) => !!c.completedAt)
-        .count();
-
     if (!constellation) {
-        // 5つ目ごとに実在星座
-        const isReal = (completedCount + 1) % 5 === 0;
-        const name = getRandomConstellationName(isReal);
+        const name = getRandomConstellationName();
         const id = await db.constellations.add({
             name,
-            isReal,
             starCount: 0,
         });
         constellation = await db.constellations.get(id);
@@ -342,9 +334,8 @@ export async function addStar(
         brightness,
         size,
         color,
-        achievementId,
         constellationId: constellation.id!,
-        createdAt: new Date(),
+        createdAt: createdAt ?? new Date(),
     });
 
     const star = await db.stars.get(starId);
@@ -375,14 +366,10 @@ export async function addStar(
         constellationCompleted = true;
     }
 
-    // achievementにstarIdを紐付け
-    await db.achievements.update(achievementId, { starId: star.id! });
-
     return {
         star,
         connectedTo,
         constellationCompleted,
         constellationName: constellationCompleted ? constellation.name : undefined,
-        isRealConstellation: constellationCompleted ? constellation.isReal : undefined,
     };
 }

@@ -2,13 +2,6 @@ import Dexie, { type EntityTable } from 'dexie';
 
 // ===== データモデル =====
 
-export interface Achievement {
-    id?: number;
-    text: string;
-    createdAt: Date;
-    starId?: number;
-}
-
 export interface Star {
     id?: number;
     x: number;
@@ -18,7 +11,6 @@ export interface Star {
     brightness: number;
     size: number;
     color: string;
-    achievementId: number;
     constellationId?: number;
     createdAt: Date;
 }
@@ -33,7 +25,6 @@ export interface ConstellationLine {
 export interface Constellation {
     id?: number;
     name: string;
-    isReal: boolean;
     completedAt?: Date;
     starCount: number;
 }
@@ -41,7 +32,6 @@ export interface Constellation {
 // ===== データベース =====
 
 class StarDiaryDB extends Dexie {
-    achievements!: EntityTable<Achievement, 'id'>;
     stars!: EntityTable<Star, 'id'>;
     constellationLines!: EntityTable<ConstellationLine, 'id'>;
     constellations!: EntityTable<Constellation, 'id'>;
@@ -51,6 +41,12 @@ class StarDiaryDB extends Dexie {
         this.version(1).stores({
             achievements: '++id, createdAt, starId',
             stars: '++id, achievementId, constellationId, gridX, gridY, createdAt',
+            constellationLines: '++id, constellationId, fromStarId, toStarId',
+            constellations: '++id, name, completedAt',
+        });
+        this.version(2).stores({
+            achievements: null,
+            stars: '++id, constellationId, gridX, gridY, createdAt',
             constellationLines: '++id, constellationId, fromStarId, toStarId',
             constellations: '++id, name, completedAt',
         });

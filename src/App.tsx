@@ -17,25 +17,23 @@ import './App.css';
 import button01Url from '../assets/button01.png';
 import button02Url from '../assets/button02.png';
 import logoUrl from '../assets/logo.png';
-import paperUrl from '../assets/paper.png';
-import inputTrayFlipUrl from '../assets/Book01-1(Flip).mp3';
 import starChimeUrl from '../assets/VSQSE_0528_kiran_03.mp3';
 
 type ViewMode = 'sky' | 'zukan';
 const SKY_THEME_STORAGE_KEY = 'stardiary.skyThemePreset';
 const CONSTELLATION_LINES_STORAGE_KEY = 'stardiary.showConstellationLines';
-const DAILY_CHECKIN_LIMIT = 5;
-const CHECKIN_COOLDOWN_MS = 15_000;
-const STAR_STORAGE_LIMIT = 400;
+const DAILY_CHECKIN_LIMIT = 10;
+const STAR_STORAGE_LIMIT = 600;
 const STAR_DISPLAY_LIMIT = 120;
 const COMPLETED_CONSTELLATION_STORAGE_LIMIT = 24;
 
-type CheckinOption = {
-    key: 'happy' | 'effort' | 'calm' | 'tired' | 'thanks';
+type ReflectionTab = {
+    key: 'otsukare' | 'yokuyatta' | 'hokkori' | 'oyasumi';
     label: string;
     color: string;
     sizeRange: [number, number];
     brightnessRange: [number, number];
+    phrases: string[];
 };
 
 const skyThemeOptions: { value: SkyThemePreset; label: string }[] = [
@@ -46,41 +44,66 @@ const skyThemeOptions: { value: SkyThemePreset; label: string }[] = [
     { value: 'winter', label: '冬' },
 ];
 
-const CHECKIN_OPTIONS: CheckinOption[] = [
+const REFLECTION_TABS: ReflectionTab[] = [
     {
-        key: 'happy',
-        label: 'うれしい',
-        color: '#fff3a8',
-        sizeRange: [2.9, 3.9],
-        brightnessRange: [0.9, 1],
+        key: 'otsukare',
+        label: 'おつかれ',
+        color: '#d8d0ff',
+        sizeRange: [2.6, 3.5],
+        brightnessRange: [0.82, 0.92],
+        phrases: [
+            '今日も無事に終わった',
+            'ちゃんと息した',
+            '美味しいものを食べた',
+            'お風呂に入った',
+            'とりあえず乗り切った',
+            'いっぱい寝ていい日',
+            'ただただ、おつかれさま',
+        ],
     },
     {
-        key: 'effort',
-        label: 'がんばった',
+        key: 'yokuyatta',
+        label: 'よくやった',
         color: '#ffd0a8',
         sizeRange: [2.7, 3.6],
         brightnessRange: [0.86, 0.96],
+        phrases: [
+            '苦手なことを頑張った',
+            '誰かに優しくできた',
+            '自分に優しくできた',
+            'やるべきことをできた',
+            '少しだけ前に進んだ',
+            '今日もよくやった',
+        ],
     },
     {
-        key: 'calm',
-        label: 'おだやか',
-        color: '#bde8ff',
+        key: 'hokkori',
+        label: 'ほっこり',
+        color: '#c9f2d8',
         sizeRange: [2.5, 3.3],
         brightnessRange: [0.82, 0.92],
+        phrases: [
+            'たくさん笑った',
+            '好きなものに触れた',
+            '空がきれいだった',
+            '新しい出会いがあった',
+            'ほっこりする時間があった',
+        ],
     },
     {
-        key: 'tired',
-        label: 'つかれた',
-        color: '#d6d5ef',
+        key: 'oyasumi',
+        label: 'おやすみ',
+        color: '#b9d9ff',
         sizeRange: [2.3, 3.1],
         brightnessRange: [0.78, 0.88],
-    },
-    {
-        key: 'thanks',
-        label: 'ありがとう',
-        color: '#f8bddd',
-        sizeRange: [2.7, 3.7],
-        brightnessRange: [0.85, 0.95],
+        phrases: [
+            '嫌なことは星に流そう',
+            '今日のモヤモヤは宇宙の彼方へ',
+            '今日はもう閉店',
+            'ゆっくり布団に沈もう',
+            'いい夢が見られそう',
+            '明日は明日の風が吹く',
+        ],
     },
 ];
 
@@ -100,20 +123,12 @@ function getDayRange(now = new Date()): { start: Date; end: Date } {
     return { start, end };
 }
 
-function formatCooldownMs(remainingMs: number): string {
-    const totalSeconds = Math.ceil(Math.max(0, remainingMs) / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    if (minutes === 0) return `${seconds}秒`;
-    return `${minutes}分${seconds.toString().padStart(2, '0')}秒`;
-}
-
 function App() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('sky');
     const [constellations, setConstellations] = useState<
-        { id: number; name: string; isReal: boolean; completedAt?: Date; achievements: string[] }[]
+        { id: number; name: string; completedAt?: Date }[]
     >([]);
     const [starCount, setStarCount] = useState(0);
     const [completionMessage, setCompletionMessage] = useState<string | null>(null);
@@ -124,7 +139,8 @@ function App() {
     const [isSkySharing, setIsSkySharing] = useState(false);
     const [showConstellationLines, setShowConstellationLines] = useState(true);
     const [todayCheckinCount, setTodayCheckinCount] = useState(0);
-    const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
+    const [expandedTabKey, setExpandedTabKey] = useState<ReflectionTab['key'] | null>(null);
+    const [isHelpOpen, setIsHelpOpen] = useState(false);
 
     // レンダリング状態
     const renderStateRef = useRef<RenderState>({
@@ -137,19 +153,16 @@ function App() {
         canvasWidth: 0,
         canvasHeight: 0,
         hoveredStarId: null,
-        hoveredAchievementText: null,
         camera: { x: 0, y: 0, scale: 1 },
     });
     const animFrameRef = useRef<number>(0);
     const lastTimeRef = useRef<number>(0);
-    const inputTrayAudioRef = useRef<HTMLAudioElement | null>(null);
     const starChimeAudioRef = useRef<HTMLAudioElement | null>(null);
     const lastChimeTimeRef = useRef(0);
     const isSkyShotBusyRef = useRef(false);
     const skyTapTimerRef = useRef<number | null>(null);
     const dragMovedRef = useRef(false);
     const toastTimerRef = useRef<number | null>(null);
-    const lastCheckinAtRef = useRef(0);
 
     // パン・ズーム用Ref
     const isDraggingRef = useRef(false);
@@ -177,27 +190,9 @@ function App() {
         });
     }, []);
 
-    const playInputTrayFlip = useCallback(() => {
-        if (typeof Audio === 'undefined') return;
-
-        if (!inputTrayAudioRef.current) {
-            const audio = new Audio(inputTrayFlipUrl);
-            audio.preload = 'auto';
-            audio.volume = 0.45;
-            inputTrayAudioRef.current = audio;
-        }
-
-        const audio = inputTrayAudioRef.current;
-        audio.currentTime = 0;
-        void audio.play().catch((err) => {
-            console.error('Failed to play input tray sound:', err);
-        });
-    }, []);
-
     const handleToggleInputTray = useCallback(() => {
         setIsInputTrayOpen((open) => !open);
-        playInputTrayFlip();
-    }, [playInputTrayFlip]);
+    }, []);
 
     const showToast = useCallback((message: string, durationMs = 3200) => {
         setCompletionMessage(message);
@@ -294,7 +289,7 @@ function App() {
     const deleteConstellations = useCallback(async (constellationIds: number[]) => {
         if (constellationIds.length === 0) return;
 
-        await db.transaction('rw', db.achievements, db.stars, db.constellationLines, db.constellations, async () => {
+        await db.transaction('rw', db.stars, db.constellationLines, db.constellations, async () => {
             const stars = await db.stars.where('constellationId').anyOf(constellationIds).toArray();
             const starIds = stars.map((s) => s.id).filter((id): id is number => typeof id === 'number');
 
@@ -303,15 +298,6 @@ function App() {
             if (starIds.length > 0) {
                 await db.constellationLines.where('fromStarId').anyOf(starIds).delete();
                 await db.constellationLines.where('toStarId').anyOf(starIds).delete();
-
-                const achievements = await db.achievements.where('starId').anyOf(starIds).toArray();
-                const achievementIds = achievements
-                    .map((a) => a.id)
-                    .filter((id): id is number => typeof id === 'number');
-
-                if (achievementIds.length > 0) {
-                    await db.achievements.bulkDelete(achievementIds);
-                }
                 await db.stars.bulkDelete(starIds);
             }
 
@@ -376,14 +362,8 @@ function App() {
         setStarCount(allStars.length);
 
         const { start, end } = getDayRange();
-        const todayCount = await db.achievements.where('createdAt').between(start, end, true, false).count();
+        const todayCount = await db.stars.where('createdAt').between(start, end, true, false).count();
         setTodayCheckinCount(todayCount);
-
-        const latestAchievement = await db.achievements.orderBy('createdAt').last();
-        const latestTime = latestAchievement ? new Date(latestAchievement.createdAt).getTime() : 0;
-        lastCheckinAtRef.current = latestTime;
-        const remaining = latestTime > 0 ? Math.max(0, CHECKIN_COOLDOWN_MS - (Date.now() - latestTime)) : 0;
-        setCooldownRemainingMs(remaining);
     }, [enforceStorageLimits]);
 
     // 図鑑データ読み込み
@@ -393,19 +373,10 @@ function App() {
 
         const zukanData = await Promise.all(
             completed.map(async (c) => {
-                const stars = await db.stars.where('constellationId').equals(c.id!).toArray();
-                const achievements = await Promise.all(
-                    stars.map(async (s) => {
-                        const a = await db.achievements.get(s.achievementId);
-                        return a?.text ?? '';
-                    }),
-                );
                 return {
                     id: c.id!,
                     name: c.name,
-                    isReal: c.isReal,
                     completedAt: c.completedAt,
-                    achievements,
                 };
             }),
         );
@@ -444,24 +415,9 @@ function App() {
             setIsSkySettingsOpen(false);
             setIsInputTrayOpen(false);
             setIsSkyUiHidden(false);
+            setExpandedTabKey(null);
         }
     }, [viewMode]);
-
-    useEffect(() => {
-        const timerId = window.setInterval(() => {
-            const latestTime = lastCheckinAtRef.current;
-            if (!latestTime) {
-                setCooldownRemainingMs(0);
-                return;
-            }
-            const remaining = Math.max(0, CHECKIN_COOLDOWN_MS - (Date.now() - latestTime));
-            setCooldownRemainingMs(remaining);
-        }, 1000);
-
-        return () => {
-            window.clearInterval(timerId);
-        };
-    }, []);
 
     // Canvas初期化
     useEffect(() => {
@@ -549,10 +505,6 @@ function App() {
             window.clearTimeout(toastTimerRef.current);
             toastTimerRef.current = null;
         }
-        if (inputTrayAudioRef.current) {
-            inputTrayAudioRef.current.pause();
-            inputTrayAudioRef.current = null;
-        }
         if (starChimeAudioRef.current) {
             starChimeAudioRef.current.pause();
             starChimeAudioRef.current = null;
@@ -561,7 +513,7 @@ function App() {
 
     // 星のホバー判定（ワールド座標で検索）
     const handleCanvasInteraction = useCallback(
-        async (clientX: number, clientY: number) => {
+        (clientX: number, clientY: number) => {
             const canvas = canvasRef.current;
             if (!canvas) return;
 
@@ -586,12 +538,9 @@ function App() {
             }
 
             if (closestStar) {
-                const achievement = await db.achievements.get(closestStar.achievementId);
                 renderStateRef.current.hoveredStarId = closestStar.id!;
-                renderStateRef.current.hoveredAchievementText = achievement?.text ?? '';
             } else {
                 renderStateRef.current.hoveredStarId = null;
-                renderStateRef.current.hoveredAchievementText = null;
             }
         },
         [],
@@ -748,40 +697,26 @@ function App() {
     }, []);
 
     const handleCheckin = useCallback(
-        async (option: CheckinOption) => {
+        async (tab: ReflectionTab, phrase: string) => {
             if (isSubmitting) return;
 
             if (todayCheckinCount >= DAILY_CHECKIN_LIMIT) {
-                showToast('今日は5つまでチェックインできます。続きは明日お試しください。', 3600);
-                return;
-            }
-
-            const nowMs = Date.now();
-            const cooldown = Math.max(0, CHECKIN_COOLDOWN_MS - (nowMs - lastCheckinAtRef.current));
-            if (cooldown > 0) {
-                setCooldownRemainingMs(cooldown);
-                showToast(`連続追加は ${formatCooldownMs(cooldown)} 後にできます。`, 2200);
+                showToast('今日は5つまで星を追加できます。続きは明日。', 3600);
                 return;
             }
 
             setIsSubmitting(true);
             const checkinAt = new Date();
-            let achievementId: number | null = null;
 
             try {
-                achievementId = (await db.achievements.add({
-                    text: option.label,
-                    createdAt: checkinAt,
-                })) as number;
-
                 const { canvasWidth, canvasHeight } = renderStateRef.current;
                 const starStyle: AddStarStyle = {
-                    color: option.color,
-                    size: pickRandomInRange(option.sizeRange),
-                    brightness: pickRandomInRange(option.brightnessRange),
+                    color: tab.color,
+                    size: pickRandomInRange(tab.sizeRange),
+                    brightness: pickRandomInRange(tab.brightnessRange),
                 };
 
-                const result = await addStar(achievementId, canvasWidth, canvasHeight, starStyle);
+                const result = await addStar(canvasWidth, canvasHeight, starStyle, checkinAt);
 
                 const checkinPanel = document.getElementById('checkin-panel');
                 const panelRect = checkinPanel?.getBoundingClientRect();
@@ -794,66 +729,63 @@ function App() {
                 const fragment = createPaperFragment(worldStartX, worldStartY, result.star.x, result.star.y);
                 renderStateRef.current.paperFragments.push(fragment);
 
-                lastCheckinAtRef.current = checkinAt.getTime();
                 setTodayCheckinCount((count) => Math.min(DAILY_CHECKIN_LIMIT, count + 1));
-                setCooldownRemainingMs(CHECKIN_COOLDOWN_MS);
+                setExpandedTabKey(null);
+                // 紙片エフェクト後に星を反映
+                await new Promise<void>((resolve) => {
+                    window.setTimeout(() => resolve(), 1200);
+                });
 
-                // 少し遅れてデータに反映（エフェクト後に星が見える）
-                setTimeout(async () => {
-                    await loadData();
-                    playStarChime();
+                await loadData();
+                playStarChime();
 
-                    if (result.constellationCompleted && result.constellationName) {
-                        const starsInConstellation = renderStateRef.current.stars.filter(
-                            (s) => s.constellationId === result.star.constellationId,
+                if (result.constellationCompleted && result.constellationName) {
+                    const starsInConstellation = renderStateRef.current.stars.filter(
+                        (s) => s.constellationId === result.star.constellationId,
+                    );
+
+                    const constellationLines = renderStateRef.current.lines.filter(
+                        (line) => line.from.constellationId === result.star.constellationId
+                            || line.to.constellationId === result.star.constellationId,
+                    );
+
+                    const LINE_STAGGER = 0.3;
+                    const LINE_DRAW_DURATION = 0.4;
+                    const effectLines: CompletionEffectLine[] = constellationLines.map((line, i) => ({
+                        fromX: line.from.x,
+                        fromY: line.from.y,
+                        toX: line.to.x,
+                        toY: line.to.y,
+                        drawProgress: 0,
+                        startDelay: i * LINE_STAGGER,
+                        glowAlpha: 1,
+                    }));
+
+                    const totalLineDuration = effectLines.length > 0
+                        ? (effectLines.length - 1) * LINE_STAGGER + LINE_DRAW_DURATION + 0.3
+                        : 0.5;
+
+                    const completionEffect: CompletionEffect = {
+                        constellationId: result.star.constellationId!,
+                        name: result.constellationName,
+                        progress: 0,
+                        phase: 'lineDrawing',
+                        starPositions: starsInConstellation.map((s) => ({ x: s.x, y: s.y })),
+                        lines: effectLines,
+                        totalLineDuration,
+                    };
+
+                    renderStateRef.current.completionEffects.push(completionEffect);
+
+                    const toastDelay = totalLineDuration * 1000 + 800;
+                    window.setTimeout(() => {
+                        showToast(
+                            `✨ ${result.constellationName} が完成しました！`,
+                            4000,
                         );
-
-                        const constellationLines = renderStateRef.current.lines.filter(
-                            (line) => line.from.constellationId === result.star.constellationId
-                                || line.to.constellationId === result.star.constellationId,
-                        );
-
-                        const LINE_STAGGER = 0.3;
-                        const LINE_DRAW_DURATION = 0.4;
-                        const effectLines: CompletionEffectLine[] = constellationLines.map((line, i) => ({
-                            fromX: line.from.x,
-                            fromY: line.from.y,
-                            toX: line.to.x,
-                            toY: line.to.y,
-                            drawProgress: 0,
-                            startDelay: i * LINE_STAGGER,
-                            glowAlpha: 1,
-                        }));
-
-                        const totalLineDuration = effectLines.length > 0
-                            ? (effectLines.length - 1) * LINE_STAGGER + LINE_DRAW_DURATION + 0.3
-                            : 0.5;
-
-                        const completionEffect: CompletionEffect = {
-                            constellationId: result.star.constellationId!,
-                            name: result.constellationName,
-                            progress: 0,
-                            phase: 'lineDrawing',
-                            starPositions: starsInConstellation.map((s) => ({ x: s.x, y: s.y })),
-                            lines: effectLines,
-                            totalLineDuration,
-                        };
-
-                        renderStateRef.current.completionEffects.push(completionEffect);
-
-                        const toastDelay = totalLineDuration * 1000 + 800;
-                        setTimeout(() => {
-                            showToast(
-                                `${result.isRealConstellation ? '🌟' : '✨'} ${result.constellationName} が完成しました！`,
-                                4000,
-                            );
-                        }, toastDelay);
-                    }
-                }, 1200);
-            } catch (err) {
-                if (achievementId) {
-                    await db.achievements.delete(achievementId);
+                    }, toastDelay);
                 }
+            } catch (err) {
                 console.error('Failed to add star:', err);
                 showToast('星の追加に失敗しました。時間をおいて再試行してください。', 3200);
             } finally {
@@ -870,11 +802,10 @@ function App() {
         if (!shouldClear) return;
 
         try {
-            await db.transaction('rw', db.achievements, db.stars, db.constellationLines, db.constellations, async () => {
+            await db.transaction('rw', db.stars, db.constellationLines, db.constellations, async () => {
                 await Promise.all([
                     db.constellationLines.clear(),
                     db.stars.clear(),
-                    db.achievements.clear(),
                     db.constellations.clear(),
                 ]);
             });
@@ -884,14 +815,11 @@ function App() {
             renderStateRef.current.paperFragments = [];
             renderStateRef.current.completionEffects = [];
             renderStateRef.current.hoveredStarId = null;
-            renderStateRef.current.hoveredAchievementText = null;
 
             setCompletionMessage(null);
             setStarCount(0);
             setConstellations([]);
             setTodayCheckinCount(0);
-            setCooldownRemainingMs(0);
-            lastCheckinAtRef.current = 0;
         } catch (err) {
             console.error('Failed to clear all data:', err);
         }
@@ -899,13 +827,17 @@ function App() {
 
     const isSkyUiSlideHidden = viewMode === 'sky' && isSkyUiHidden;
     const isDailyLimitReached = todayCheckinCount >= DAILY_CHECKIN_LIMIT;
-    const isCooldownActive = cooldownRemainingMs > 0;
-    const checkinDisabled = isSubmitting || isDailyLimitReached || isCooldownActive;
+    const checkinDisabled = isSubmitting || isDailyLimitReached;
+    const expandedTab = expandedTabKey
+        ? REFLECTION_TABS.find((tab) => tab.key === expandedTabKey) ?? null
+        : null;
     const checkinStatusText = isDailyLimitReached
-        ? '今日のチェックイン上限に達しました。明日また追加できます。'
-        : isCooldownActive
-            ? `次のチェックインまで ${formatCooldownMs(cooldownRemainingMs)}`
-            : '1日最大5つまで追加できます。';
+        ? '星にしたい言葉を選ぶ　明日また追加できます。'
+        : isSubmitting
+            ? '星を描いています…'
+            : expandedTab
+                ? `「${expandedTab.label}」から言葉を選べます。`
+                : 'タブを押すと、言葉の候補が開きます。';
 
     return (
         <div className={`app ${isInputTrayOpen ? 'input-tray-open' : ''}`}>
@@ -922,7 +854,6 @@ function App() {
                     isDraggingRef.current = false;
                     dragMovedRef.current = false;
                     renderStateRef.current.hoveredStarId = null;
-                    renderStateRef.current.hoveredAchievementText = null;
                 }}
             />
 
@@ -979,27 +910,46 @@ function App() {
 
                         <div id="input-tray-content" className="input-form-content">
                             <div id="checkin-panel" className="checkin-panel">
-                                <img src={paperUrl} alt="" aria-hidden="true" className="input-paper-image" />
                                 <div className="checkin-panel-content">
-                                    <p className="checkin-title">今日のチェックイン</p>
+                                    <p className="checkin-title">星にしたい言葉を選ぶ</p>
                                     <p className="checkin-counter">{todayCheckinCount} / {DAILY_CHECKIN_LIMIT}</p>
-                                    <div className="checkin-grid">
-                                        {CHECKIN_OPTIONS.map((option) => (
-                                            <button
-                                                key={option.key}
-                                                type="button"
-                                                className="checkin-option-btn"
-                                                onClick={() => void handleCheckin(option)}
-                                                disabled={checkinDisabled}
-                                            >
-                                                <span
-                                                    className="checkin-option-dot"
-                                                    style={{ backgroundColor: option.color }}
-                                                    aria-hidden="true"
-                                                />
-                                                {option.label}
-                                            </button>
-                                        ))}
+                                    <div className="checkin-tab-area">
+                                        {expandedTab && (
+                                            <div className="checkin-submenu" role="listbox" aria-label={`${expandedTab.label} の言葉一覧`}>
+                                                {expandedTab.phrases.map((phrase) => (
+                                                    <button
+                                                        key={phrase}
+                                                        type="button"
+                                                        className="checkin-subitem-btn"
+                                                        onClick={() => void handleCheckin(expandedTab, phrase)}
+                                                        disabled={checkinDisabled}
+                                                    >
+                                                        {phrase}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="checkin-tab-row">
+                                            {REFLECTION_TABS.map((tab) => (
+                                                <button
+                                                    key={tab.key}
+                                                    type="button"
+                                                    className={`checkin-tab-btn ${expandedTabKey === tab.key ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        if (isSubmitting) return;
+                                                        setExpandedTabKey((current) => (current === tab.key ? null : tab.key));
+                                                    }}
+                                                    disabled={isSubmitting}
+                                                >
+                                                    <span
+                                                        className="checkin-option-dot"
+                                                        style={{ backgroundColor: tab.color }}
+                                                        aria-hidden="true"
+                                                    />
+                                                    {tab.label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                     <p className="checkin-note">{checkinStatusText}</p>
                                 </div>
@@ -1099,16 +1049,14 @@ function App() {
                             <div className="zukan-empty">
                                 <p className="zukan-empty-icon">🌌</p>
                                 <p>まだ星座は完成していません</p>
-                                <p className="zukan-empty-hint">チェックインを5つ重ねると、最初の星座が完成します</p>
+                                <p className="zukan-empty-hint">星を5つ追加すると、最初の星座が完成します</p>
                             </div>
                         ) : (
                             <div className="zukan-grid">
                                 {constellations.map((c) => (
-                                    <div key={c.id} className={`zukan-card ${c.isReal ? 'real' : ''}`}>
+                                    <div key={c.id} className="zukan-card">
                                         <div className="zukan-card-header">
-                                            <span className="zukan-card-label">
-                                                {c.isReal ? '実在' : '架空'}
-                                            </span>
+                                            <span className="zukan-card-label">架空</span>
                                             <span className="zukan-card-date">
                                                 {c.completedAt
                                                     ? new Date(c.completedAt).toLocaleDateString('ja-JP')
@@ -1116,14 +1064,6 @@ function App() {
                                             </span>
                                         </div>
                                         <h3 className="zukan-card-name">{c.name}</h3>
-                                        <ul className="zukan-card-achievements">
-                                            {c.achievements.map((a, i) => (
-                                                <li key={i}>
-                                                    <span className="achievement-star">◇</span>
-                                                    {a}
-                                                </li>
-                                            ))}
-                                        </ul>
                                     </div>
                                 ))}
                             </div>
@@ -1140,6 +1080,60 @@ function App() {
                                 空をクリアに
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ヘルプボタン */}
+            <button
+                type="button"
+                className="help-fab"
+                onClick={() => setIsHelpOpen(true)}
+                aria-label="使い方を見る"
+            >
+                ?
+            </button>
+
+            {/* ヘルプモーダル */}
+            {isHelpOpen && (
+                <div className="help-overlay" onClick={() => setIsHelpOpen(false)}>
+                    <div className="help-modal" onClick={(e) => e.stopPropagation()}>
+                        <button
+                            type="button"
+                            className="help-close-btn"
+                            onClick={() => setIsHelpOpen(false)}
+                            aria-label="閉じる"
+                        >
+                            ✕
+                        </button>
+                        <h2 className="help-modal-title">つかいかた</h2>
+                        <div className="help-steps">
+                            <div className="help-step">
+                                <span className="help-step-number">1．</span>
+                                <p className="help-step-text">
+                                    星にしたい言葉を選ぶと<br />星ができます。
+                                </p>
+                            </div>
+                            <div className="help-step">
+                                <span className="help-step-number">2．</span>
+                                <p className="help-step-text">
+                                    星が５つできると<br />星座になります。
+                                </p>
+                            </div>
+                            <div className="help-step">
+                                <span className="help-step-number">3．</span>
+                                <p className="help-step-text">
+                                    あなただけの星空を<br />作ってみましょう。
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            className="help-ok-btn"
+                            onClick={() => setIsHelpOpen(false)}
+                        >
+                            はじめる ✦
+                        </button>
                     </div>
                 </div>
             )}
