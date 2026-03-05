@@ -839,6 +839,7 @@ function App() {
         ? REFLECTION_TABS.find((tab) => tab.key === expandedTabKey) ?? null
         : null;
     const isCheckinSubmenuOpen = viewMode === 'sky' && expandedTab !== null;
+    const showHelpFab = !isCheckinSubmenuOpen && !(viewMode === 'sky' && isSkyUiHidden);
     const checkinStatusText = isDailyLimitReached
         ? '星にしたい言葉を選ぶ　明日また追加できます。'
         : isSubmitting
@@ -1095,7 +1096,7 @@ function App() {
             )}
 
             {/* ヘルプボタン */}
-            {!isCheckinSubmenuOpen && (
+            {showHelpFab && (
                 <button
                     type="button"
                     className="help-fab"
