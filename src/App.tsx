@@ -22,6 +22,7 @@ import starChimeUrl from '../assets/VSQSE_0528_kiran_03.mp3';
 type ViewMode = 'sky' | 'zukan';
 const SKY_THEME_STORAGE_KEY = 'stardiary.skyThemePreset';
 const CONSTELLATION_LINES_STORAGE_KEY = 'stardiary.showConstellationLines';
+const SOUND_ENABLED_STORAGE_KEY = 'stardiary.soundEnabled';
 const DAILY_CHECKIN_LIMIT = 10;
 const STAR_STORAGE_LIMIT = 600;
 const STAR_DISPLAY_LIMIT = 120;
@@ -69,6 +70,8 @@ const REFLECTION_TABS: ReflectionTab[] = [
         brightnessRange: [0.86, 0.96],
         phrases: [
             '苦手なことを頑張った',
+            'ちゃんと起きた',
+            '外に出た',
             '誰かに優しくできた',
             '自分に優しくできた',
             'やるべきことをできた',
@@ -138,6 +141,7 @@ function App() {
     const [isSkyUiHidden, setIsSkyUiHidden] = useState(false);
     const [isSkySharing, setIsSkySharing] = useState(false);
     const [showConstellationLines, setShowConstellationLines] = useState(true);
+    const [isSoundEnabled, setIsSoundEnabled] = useState(true);
     const [todayCheckinCount, setTodayCheckinCount] = useState(0);
     const [expandedTabKey, setExpandedTabKey] = useState<ReflectionTab['key'] | null>(null);
     const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -169,6 +173,7 @@ function App() {
     const dragStartRef = useRef({ x: 0, y: 0, camX: 0, camY: 0 });
 
     const playStarChime = useCallback(() => {
+        if (!isSoundEnabled) return;
         if (typeof Audio === 'undefined') return;
 
         const nowMs = performance.now();
@@ -188,7 +193,7 @@ function App() {
         void audio.play().catch((err) => {
             console.error('Failed to play star chime sound:', err);
         });
-    }, []);
+    }, [isSoundEnabled]);
 
     const handleToggleInputTray = useCallback(() => {
         setIsInputTrayOpen((open) => {
@@ -235,17 +240,32 @@ function App() {
         const fileName = `stardiary-sky-${stamp}.png`;
         const file = new File([blob], fileName, { type: 'image/png' });
         const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+        const shareTitle = 'Star Diary';
+        const shareText = '今日の星空 #StarDiary';
 
         if (typeof nav.share === 'function') {
+            const shareDataWithFile: ShareData = {
+                files: [file],
+                title: shareTitle,
+                text: shareText,
+            };
             const canShareFiles = typeof nav.canShare !== 'function' || nav.canShare({ files: [file] });
             if (canShareFiles) {
                 try {
-                    await nav.share({ files: [file], title: 'Star Diary Sky' });
+                    await nav.share(shareDataWithFile);
                     return;
                 } catch (err) {
                     if (err instanceof DOMException && err.name === 'AbortError') return;
                     console.error('Failed to share sky screenshot:', err);
                 }
+            }
+
+            try {
+                await nav.share({ title: shareTitle, text: shareText });
+                return;
+            } catch (err) {
+                if (err instanceof DOMException && err.name === 'AbortError') return;
+                console.error('Failed to share sky text:', err);
             }
         }
 
@@ -405,6 +425,11 @@ function App() {
         if (storedLineVisibility === '0') {
             setShowConstellationLines(false);
         }
+
+        const storedSoundEnabled = localStorage.getItem(SOUND_ENABLED_STORAGE_KEY);
+        if (storedSoundEnabled === '0') {
+            setIsSoundEnabled(false);
+        }
     }, []);
 
     useEffect(() => {
@@ -416,6 +441,14 @@ function App() {
         renderStateRef.current.showConstellationLines = showConstellationLines;
         localStorage.setItem(CONSTELLATION_LINES_STORAGE_KEY, showConstellationLines ? '1' : '0');
     }, [showConstellationLines]);
+
+    useEffect(() => {
+        localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, isSoundEnabled ? '1' : '0');
+        if (!isSoundEnabled && starChimeAudioRef.current) {
+            starChimeAudioRef.current.pause();
+            starChimeAudioRef.current.currentTime = 0;
+        }
+    }, [isSoundEnabled]);
 
     useEffect(() => {
         if (viewMode !== 'sky') {
@@ -846,7 +879,7 @@ function App() {
             ? '星を描いています…'
             : expandedTab
                 ? `「${expandedTab.label}」から言葉を選べます。`
-                : 'タブを押すと、言葉の候補が開きます。';
+                : 'タブを押すと、言葉の候補が開きます。※星ができるときに音が出ます';
 
     return (
         <div className={`app ${isInputTrayOpen ? 'input-tray-open' : ''}`}>
@@ -1012,6 +1045,26 @@ function App() {
                                     onClick={() => setShowConstellationLines(false)}
                                 >
                                     非表示
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="sky-settings-section">
+                            <p className="sky-settings-section-title">効果音</p>
+                            <div className="sky-line-options">
+                                <button
+                                    type="button"
+                                    className={`sky-line-option ${isSoundEnabled ? 'active' : ''}`}
+                                    onClick={() => setIsSoundEnabled(true)}
+                                >
+                                    オン
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`sky-line-option ${isSoundEnabled ? '' : 'active'}`}
+                                    onClick={() => setIsSoundEnabled(false)}
+                                >
+                                    オフ
                                 </button>
                             </div>
                         </div>
