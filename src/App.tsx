@@ -241,7 +241,7 @@ function App() {
         const file = new File([blob], fileName, { type: 'image/png' });
         const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
         const shareTitle = 'Star Diary';
-        const shareText = '今日の星空 #StarDiary';
+        const shareText = '今日の星空 #StarDiaryApp';
 
         if (typeof nav.share === 'function') {
             const shareDataWithFile: ShareData = {
