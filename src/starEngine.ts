@@ -14,8 +14,8 @@ const SEED_CONSTELLATION_GAP = 3.4;
 const SEED_CONSTELLATION_GAP_FALLBACK = 2.6;
 
 // 占有済みグリッドセルを取得
-async function getOccupiedCells(): Promise<Set<string>> {
-    const stars = await db.stars.toArray();
+async function getOccupiedCells(skyId: number): Promise<Set<string>> {
+    const stars = await db.stars.where('skyId').equals(skyId).toArray();
     return new Set(stars.map((s) => `${s.gridX},${s.gridY}`));
 }
 
@@ -155,18 +155,18 @@ function pickClusterCell(cells: GridCell[], starsInConstellation: Star[]): GridC
 
 async function findCellForConstellation(
     occupied: Set<string>,
+    skyId: number,
     constellationId: number,
 ): Promise<GridCell | null> {
     const available = getAvailableCells(occupied);
     if (available.length === 0) return null;
 
     const starsInConstellation = await db.stars
-        .where('constellationId')
-        .equals(constellationId)
+        .filter((star) => star.skyId === skyId && star.constellationId === constellationId)
         .toArray();
 
     if (starsInConstellation.length === 0) {
-        const allStars = await db.stars.toArray();
+        const allStars = await db.stars.where('skyId').equals(skyId).toArray();
         return pickSeedCell(available, constellationId, allStars);
     }
     return pickClusterCell(available, starsInConstellation);
@@ -187,19 +187,18 @@ const STAR_COLORS = [
 async function findNearestStar(
     newStar: { x: number; y: number },
     newStarId: number,
+    skyId: number,
     constellationId: number,
 ): Promise<Star | null> {
     const starsInConstellation = await db.stars
-        .where('constellationId')
-        .equals(constellationId)
+        .filter((star) => star.skyId === skyId && star.constellationId === constellationId)
         .toArray();
 
     const candidates = starsInConstellation.filter((s) => s.id !== newStarId);
     if (candidates.length === 0) return null;
 
     const existingLines = await db.constellationLines
-        .where('constellationId')
-        .equals(constellationId)
+        .filter((line) => line.skyId === skyId && line.constellationId === constellationId)
         .toArray();
 
     // 距離でソート
@@ -290,21 +289,23 @@ export interface AddStarStyle {
 const STARS_PER_CONSTELLATION = 5;
 
 export async function addStar(
+    skyId: number,
     canvasWidth: number,
     canvasHeight: number,
     style?: AddStarStyle,
     createdAt?: Date,
 ): Promise<AddStarResult> {
-    const occupied = await getOccupiedCells();
+    const occupied = await getOccupiedCells(skyId);
 
     // 現在の未完成星座を取得、なければ新規作成
     let constellation = await db.constellations
-        .filter((c) => !c.completedAt)
+        .filter((c) => c.skyId === skyId && !c.completedAt)
         .first();
 
     if (!constellation) {
         const name = getRandomConstellationName();
         const id = await db.constellations.add({
+            skyId,
             name,
             starCount: 0,
         });
@@ -313,7 +314,7 @@ export async function addStar(
 
     if (!constellation) throw new Error('星座の作成に失敗');
 
-    const cell = await findCellForConstellation(occupied, constellation.id!);
+    const cell = await findCellForConstellation(occupied, skyId, constellation.id!);
     if (!cell) {
         throw new Error('空きセルがありません');
     }
@@ -327,6 +328,7 @@ export async function addStar(
     const size = style?.size ?? (2.5 + Math.random() * 1.5);
 
     const starId = await db.stars.add({
+        skyId,
         x: pos.x,
         y: pos.y,
         gridX: cell.gridX,
@@ -342,10 +344,11 @@ export async function addStar(
     if (!star) throw new Error('星の作成に失敗');
 
     // 最も近い星と線でつなぐ
-    const connectedTo = await findNearestStar(pos, star.id!, constellation.id!);
+    const connectedTo = await findNearestStar(pos, star.id!, skyId, constellation.id!);
 
     if (connectedTo) {
         await db.constellationLines.add({
+            skyId,
             constellationId: constellation.id!,
             fromStarId: star.id!,
             toStarId: connectedTo.id!,

@@ -671,8 +671,59 @@
 .zukan-meta {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     margin-bottom: 14px;
+}
+
+.zukan-meta-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.zukan-sky-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.zukan-sky-count {
+    font-size: 11px;
+    color: var(--color-text-dim);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    padding: 3px 8px;
+}
+
+.zukan-sky-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.zukan-sky-btn {
+    font-family: var(--font-main);
+    font-size: 12px;
+    color: var(--color-text-dim);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(200, 191, 224, 0.2);
+    border-radius: 999px;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.zukan-sky-btn:hover:not(:disabled) {
+    color: var(--color-text);
+    border-color: rgba(255, 249, 196, 0.35);
+}
+
+.zukan-sky-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .zukan-empty {
@@ -737,16 +788,125 @@
 .zukan-footer {
     display: flex;
     justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
     margin-top: 18px;
     padding-top: 8px;
     padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
 }
 
+.zukan-delete-sky-btn,
+.zukan-new-sky-btn,
 .zukan-clear-btn {
     min-width: 180px;
     padding: 8px 16px;
     border-radius: 999px;
     font-size: 13px;
+}
+
+.zukan-other-settings-btn {
+    min-width: 180px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+}
+
+.other-settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 10, 30, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.other-settings-modal {
+    position: relative;
+    width: min(88vw, 360px);
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.42);
+    border-radius: 24px;
+    padding: 34px 24px 24px;
+    box-shadow:
+        0 20px 60px rgba(4, 6, 22, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.other-settings-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.08);
+    color: rgba(60, 50, 80, 0.7);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.other-settings-close-btn:hover {
+    background: rgba(0, 0, 0, 0.14);
+    color: rgba(40, 30, 60, 0.9);
+}
+
+.other-settings-title {
+    font-family: var(--font-main);
+    font-size: 20px;
+    font-weight: 700;
+    color: #2a2040;
+    text-align: center;
+    margin-bottom: 12px;
+    letter-spacing: 0.06em;
+}
+
+.other-settings-note {
+    margin-bottom: 18px;
+    text-align: center;
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(58, 48, 80, 0.78);
+    line-height: 1.6;
+}
+
+.other-settings-reset-btn {
+    display: block;
+    width: 100%;
+    padding: 13px 16px;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #8c2b38, #b63f53);
+    color: #fff3f3;
+    font-family: var(--font-main);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    box-shadow: 0 8px 22px rgba(140, 43, 56, 0.28);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.other-settings-reset-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 28px rgba(140, 43, 56, 0.36);
+}
+
+.other-settings-reset-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 /* ===== ヘルプ ===== */

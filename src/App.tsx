@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { db } from './db';
-import type { Star } from './db';
+import type { SkyPage, Star } from './db';
 import { addStar, type AddStarStyle } from './starEngine';
 import {
     render,
@@ -23,10 +23,11 @@ type ViewMode = 'sky' | 'zukan';
 const SKY_THEME_STORAGE_KEY = 'stardiary.skyThemePreset';
 const CONSTELLATION_LINES_STORAGE_KEY = 'stardiary.showConstellationLines';
 const SOUND_ENABLED_STORAGE_KEY = 'stardiary.soundEnabled';
+const CURRENT_SKY_PAGE_STORAGE_KEY = 'stardiary.currentSkyPageId';
 const DAILY_CHECKIN_LIMIT = 10;
+const SKY_PAGE_LIMIT = 8;
 const STAR_STORAGE_LIMIT = 600;
 const STAR_DISPLAY_LIMIT = 120;
-const COMPLETED_CONSTELLATION_STORAGE_LIMIT = 24;
 
 type ReflectionTab = {
     key: 'otsukare' | 'yokuyatta' | 'hokkori' | 'oyasumi';
@@ -35,6 +36,12 @@ type ReflectionTab = {
     sizeRange: [number, number];
     brightnessRange: [number, number];
     phrases: string[];
+};
+
+type SkyPageSummary = {
+    id: number;
+    title: string;
+    createdAt: Date;
 };
 
 const skyThemeOptions: { value: SkyThemePreset; label: string }[] = [
@@ -126,6 +133,25 @@ function getDayRange(now = new Date()): { start: Date; end: Date } {
     return { start, end };
 }
 
+function parseStoredSkyPageId(): number | null {
+    const raw = localStorage.getItem(CURRENT_SKY_PAGE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getNextSkyTitle(pages: Array<Pick<SkyPage, 'title'>>): string {
+    let maxNumber = 0;
+
+    for (const page of pages) {
+        const match = page.title.match(/^空\s+(\d+)$/);
+        if (!match) continue;
+        maxNumber = Math.max(maxNumber, Number(match[1]));
+    }
+
+    return `空 ${maxNumber + 1}`;
+}
+
 function App() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -133,6 +159,8 @@ function App() {
     const [constellations, setConstellations] = useState<
         { id: number; name: string; completedAt?: Date }[]
     >([]);
+    const [skyPages, setSkyPages] = useState<SkyPageSummary[]>([]);
+    const [currentSkyId, setCurrentSkyId] = useState<number | null>(null);
     const [starCount, setStarCount] = useState(0);
     const [completionMessage, setCompletionMessage] = useState<string | null>(null);
     const [skyThemePreset, setSkyThemePreset] = useState<SkyThemePreset>('auto');
@@ -145,6 +173,7 @@ function App() {
     const [todayCheckinCount, setTodayCheckinCount] = useState(0);
     const [expandedTabKey, setExpandedTabKey] = useState<ReflectionTab['key'] | null>(null);
     const [isHelpOpen, setIsHelpOpen] = useState(false);
+    const [isOtherSettingsOpen, setIsOtherSettingsOpen] = useState(false);
 
     // レンダリング状態
     const renderStateRef = useRef<RenderState>({
@@ -313,69 +342,120 @@ function App() {
         cam.y = Math.max(minY, Math.min(maxY, cam.y));
     }, []);
 
-    const deleteConstellations = useCallback(async (constellationIds: number[]) => {
-        if (constellationIds.length === 0) return;
+    const resetSkyScene = useCallback(() => {
+        renderStateRef.current.stars = [];
+        renderStateRef.current.lines = [];
+        renderStateRef.current.paperFragments = [];
+        renderStateRef.current.completionEffects = [];
+        renderStateRef.current.hoveredStarId = null;
+        renderStateRef.current.camera = { x: 0, y: 0, scale: 1 };
+        lastTimeRef.current = 0;
+        setCompletionMessage(null);
+    }, []);
 
-        await db.transaction('rw', db.stars, db.constellationLines, db.constellations, async () => {
-            const stars = await db.stars.where('constellationId').anyOf(constellationIds).toArray();
-            const starIds = stars.map((s) => s.id).filter((id): id is number => typeof id === 'number');
+    const deleteSkyPages = useCallback(async (skyIds: number[]) => {
+        if (skyIds.length === 0) return;
 
-            await db.constellationLines.where('constellationId').anyOf(constellationIds).delete();
-
-            if (starIds.length > 0) {
-                await db.constellationLines.where('fromStarId').anyOf(starIds).delete();
-                await db.constellationLines.where('toStarId').anyOf(starIds).delete();
-                await db.stars.bulkDelete(starIds);
-            }
-
-            await db.constellations.bulkDelete(constellationIds);
+        await db.transaction('rw', db.stars, db.constellationLines, db.constellations, db.skyPages, async () => {
+            await Promise.all([
+                db.constellationLines.where('skyId').anyOf(skyIds).delete(),
+                db.constellations.where('skyId').anyOf(skyIds).delete(),
+                db.stars.where('skyId').anyOf(skyIds).delete(),
+            ]);
+            await db.skyPages.bulkDelete(skyIds);
         });
     }, []);
 
-    const enforceStorageLimits = useCallback(async () => {
-        const completedConstellations = (await db.constellations.toArray())
-            .filter((c) => !!c.completedAt && typeof c.id === 'number')
-            .sort((a, b) => {
-                const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
-                const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
-                return timeA - timeB;
+    const syncSkyPages = useCallback(async (preferredSkyId?: number | null): Promise<number> => {
+        let pages = await db.skyPages.orderBy('createdAt').toArray();
+
+        if (pages.length === 0) {
+            const now = new Date();
+            const skyId = await db.skyPages.add({
+                title: '空 1',
+                createdAt: now,
+                lastOpenedAt: now,
             });
-
-        const overflowConstellationCount = completedConstellations.length - COMPLETED_CONSTELLATION_STORAGE_LIMIT;
-        if (overflowConstellationCount > 0) {
-            const removeIds = completedConstellations
-                .slice(0, overflowConstellationCount)
-                .map((c) => c.id as number);
-            await deleteConstellations(removeIds);
-        }
-
-        const allStars = await db.stars.orderBy('createdAt').toArray();
-        const overflowStarCount = allStars.length - STAR_STORAGE_LIMIT;
-        if (overflowStarCount > 0) {
-            const overflowStars = allStars.slice(0, overflowStarCount);
-            const overflowConstellationIds = Array.from(
-                new Set(
-                    overflowStars
-                        .map((star) => star.constellationId)
-                        .filter((id): id is number => typeof id === 'number'),
-                ),
-            );
-
-            if (overflowConstellationIds.length > 0) {
-                await deleteConstellations(overflowConstellationIds);
+            pages = await db.skyPages.orderBy('createdAt').toArray();
+            if (!pages.some((page) => page.id === skyId)) {
+                throw new Error('最初の空の作成に失敗しました');
             }
         }
-    }, [deleteConstellations]);
+
+        const removeSkyIds = new Set<number>();
+
+        if (pages.length > SKY_PAGE_LIMIT) {
+            for (const page of pages.slice(0, pages.length - SKY_PAGE_LIMIT)) {
+                if (typeof page.id === 'number') {
+                    removeSkyIds.add(page.id);
+                }
+            }
+        }
+
+        let totalStars = await db.stars.count();
+        for (const page of pages) {
+            if (totalStars <= STAR_STORAGE_LIMIT) break;
+            if (typeof page.id !== 'number' || removeSkyIds.has(page.id)) continue;
+            if (pages.length - removeSkyIds.size <= 1) break;
+
+            const pageStarCount = await db.stars.where('skyId').equals(page.id).count();
+            removeSkyIds.add(page.id);
+            totalStars -= pageStarCount;
+        }
+
+        if (removeSkyIds.size > 0) {
+            await deleteSkyPages([...removeSkyIds]);
+            pages = await db.skyPages.orderBy('createdAt').toArray();
+        }
+
+        if (pages.length === 0) {
+            const now = new Date();
+            const skyId = await db.skyPages.add({
+                title: '空 1',
+                createdAt: now,
+                lastOpenedAt: now,
+            });
+            pages = await db.skyPages.orderBy('createdAt').toArray();
+            if (!pages.some((page) => page.id === skyId)) {
+                throw new Error('空の復元に失敗しました');
+            }
+        }
+
+        const storedSkyId = parseStoredSkyPageId();
+        const activePage = pages.find((page) => page.id === preferredSkyId)
+            ?? pages.find((page) => page.id === storedSkyId)
+            ?? pages[pages.length - 1];
+
+        if (!activePage || typeof activePage.id !== 'number') {
+            throw new Error('現在の空を特定できません');
+        }
+
+        await db.skyPages.update(activePage.id, { lastOpenedAt: new Date() });
+
+        setSkyPages(
+            pages
+                .filter((page): page is SkyPage & { id: number } => typeof page.id === 'number')
+                .map((page) => ({
+                    id: page.id,
+                    title: page.title,
+                    createdAt: page.createdAt,
+                })),
+        );
+        setCurrentSkyId(activePage.id);
+        localStorage.setItem(CURRENT_SKY_PAGE_STORAGE_KEY, String(activePage.id));
+
+        return activePage.id;
+    }, [deleteSkyPages]);
 
     // データ読み込み
-    const loadData = useCallback(async () => {
-        await enforceStorageLimits();
+    const loadData = useCallback(async (preferredSkyId?: number | null) => {
+        const skyId = await syncSkyPages(preferredSkyId ?? currentSkyId);
 
-        const allStars = await db.stars.orderBy('createdAt').toArray();
+        const allStars = await db.stars.where('skyId').equals(skyId).sortBy('createdAt');
         const visibleStars = allStars.slice(-STAR_DISPLAY_LIMIT);
         const starMap = new Map(visibleStars.map((star) => [star.id, star] as const));
 
-        const allLines = await db.constellationLines.toArray();
+        const allLines = await db.constellationLines.where('skyId').equals(skyId).toArray();
         const lines = allLines
             .map((line) => {
                 const from = starMap.get(line.fromStarId);
@@ -389,31 +469,32 @@ function App() {
         setStarCount(allStars.length);
 
         const { start, end } = getDayRange();
-        const todayCount = await db.stars.where('createdAt').between(start, end, true, false).count();
+        const todayCount = await db.stars
+            .where('skyId')
+            .equals(skyId)
+            .and((star) => star.createdAt >= start && star.createdAt < end)
+            .count();
         setTodayCheckinCount(todayCount);
-    }, [enforceStorageLimits]);
+    }, [currentSkyId, syncSkyPages]);
 
     // 図鑑データ読み込み
-    const loadZukan = useCallback(async () => {
-        const allConstellations = await db.constellations.toArray();
+    const loadZukan = useCallback(async (preferredSkyId?: number | null) => {
+        const skyId = await syncSkyPages(preferredSkyId ?? currentSkyId);
+        const allConstellations = await db.constellations.where('skyId').equals(skyId).toArray();
         const completed = allConstellations.filter((c) => c.completedAt);
 
-        const zukanData = await Promise.all(
-            completed.map(async (c) => {
-                return {
-                    id: c.id!,
-                    name: c.name,
-                    completedAt: c.completedAt,
-                };
-            }),
-        );
+        const zukanData = completed.map((c) => ({
+            id: c.id!,
+            name: c.name,
+            completedAt: c.completedAt,
+        }));
 
         setConstellations(zukanData.sort((a, b) => {
             const dateA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
             const dateB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
             return dateB - dateA;
         }));
-    }, []);
+    }, [currentSkyId, syncSkyPages]);
 
     useEffect(() => {
         const storedValue = localStorage.getItem(SKY_THEME_STORAGE_KEY);
@@ -484,12 +565,19 @@ function App() {
         initRenderer(window.innerWidth, window.innerHeight);
         window.addEventListener('resize', resize);
 
-        loadData();
-
         return () => {
             window.removeEventListener('resize', resize);
         };
+    }, []);
+
+    useEffect(() => {
+        void loadData();
     }, [loadData]);
+
+    useEffect(() => {
+        if (viewMode !== 'zukan') return;
+        void loadZukan();
+    }, [loadZukan, viewMode]);
 
     // アニメーションループ
     useEffect(() => {
@@ -739,6 +827,7 @@ function App() {
     const handleCheckin = useCallback(
         async (tab: ReflectionTab, phrase: string) => {
             if (isSubmitting) return;
+            if (currentSkyId === null) return;
 
             if (todayCheckinCount >= DAILY_CHECKIN_LIMIT) {
                 showToast('今日は5つまで星を追加できます。続きは明日。', 3600);
@@ -756,7 +845,7 @@ function App() {
                     brightness: pickRandomInRange(tab.brightnessRange),
                 };
 
-                const result = await addStar(canvasWidth, canvasHeight, starStyle, checkinAt);
+                const result = await addStar(currentSkyId, canvasWidth, canvasHeight, starStyle, checkinAt);
 
                 const checkinPanel = document.getElementById('checkin-panel');
                 const panelRect = checkinPanel?.getBoundingClientRect();
@@ -776,7 +865,7 @@ function App() {
                     window.setTimeout(() => resolve(), 1200);
                 });
 
-                await loadData();
+                await loadData(currentSkyId);
                 playStarChime();
 
                 if (result.constellationCompleted && result.constellationName) {
@@ -832,38 +921,143 @@ function App() {
                 setIsSubmitting(false);
             }
         },
-        [isSubmitting, loadData, playStarChime, showToast, todayCheckinCount],
+        [currentSkyId, isSubmitting, loadData, playStarChime, showToast, todayCheckinCount],
     );
 
     const handleClearAllData = useCallback(async () => {
         if (isSubmitting || starCount === 0) return;
 
-        const shouldClear = window.confirm('記録した星・線・図鑑データをすべて削除します。よろしいですか？');
+        const shouldClear = window.confirm('記録したすべての星と空を削除します。よろしいですか？');
         if (!shouldClear) return;
 
         try {
-            await db.transaction('rw', db.stars, db.constellationLines, db.constellations, async () => {
+            await db.transaction('rw', db.stars, db.constellationLines, db.constellations, db.skyPages, async () => {
                 await Promise.all([
                     db.constellationLines.clear(),
                     db.stars.clear(),
                     db.constellations.clear(),
+                    db.skyPages.clear(),
                 ]);
             });
 
-            renderStateRef.current.stars = [];
-            renderStateRef.current.lines = [];
-            renderStateRef.current.paperFragments = [];
-            renderStateRef.current.completionEffects = [];
-            renderStateRef.current.hoveredStarId = null;
-
-            setCompletionMessage(null);
+            resetSkyScene();
             setStarCount(0);
             setConstellations([]);
+            setSkyPages([]);
+            setCurrentSkyId(null);
             setTodayCheckinCount(0);
+            localStorage.removeItem(CURRENT_SKY_PAGE_STORAGE_KEY);
+
+            await loadData();
+            if (viewMode === 'zukan') {
+                await loadZukan();
+            }
         } catch (err) {
             console.error('Failed to clear all data:', err);
         }
-    }, [isSubmitting, starCount]);
+    }, [isSubmitting, loadData, loadZukan, resetSkyScene, starCount, viewMode]);
+
+    const handleSelectSky = useCallback(async (skyId: number) => {
+        if (skyId === currentSkyId) return;
+
+        resetSkyScene();
+        setConstellations([]);
+        setIsSkySettingsOpen(false);
+        setIsInputTrayOpen(false);
+        setExpandedTabKey(null);
+
+        await loadData(skyId);
+        if (viewMode === 'zukan') {
+            await loadZukan(skyId);
+        }
+    }, [currentSkyId, loadData, loadZukan, resetSkyScene, viewMode]);
+
+    const handleCreateNewSky = useCallback(async () => {
+        if (isSubmitting) return;
+
+        const pages = await db.skyPages.orderBy('createdAt').toArray();
+        const now = new Date();
+        const nextSkyId = await db.skyPages.add({
+            title: getNextSkyTitle(pages),
+            createdAt: now,
+            lastOpenedAt: now,
+        });
+
+        resetSkyScene();
+        setConstellations([]);
+        setIsSkySettingsOpen(false);
+        setIsInputTrayOpen(false);
+        setExpandedTabKey(null);
+
+        await loadData(nextSkyId);
+        if (viewMode === 'zukan') {
+            await loadZukan(nextSkyId);
+        }
+        showToast('新しい空を用意しました。', 2400);
+    }, [isSubmitting, loadData, loadZukan, resetSkyScene, showToast, viewMode]);
+
+    const currentSkyIndex = skyPages.findIndex((sky) => sky.id === currentSkyId);
+    const currentSkyTitle = currentSkyIndex >= 0 ? skyPages[currentSkyIndex].title : '空 1';
+    const canMoveToPrevSky = currentSkyIndex > 0;
+    const canMoveToNextSky = currentSkyIndex >= 0 && currentSkyIndex < skyPages.length - 1;
+    const currentSkyProgressText = skyPages.length > 0 && currentSkyIndex >= 0
+        ? `${currentSkyIndex + 1} / ${skyPages.length}`
+        : '1 / 1';
+    const canResetAllData = skyPages.length > 1 || starCount > 0;
+
+    const handleDeleteCurrentSky = useCallback(async () => {
+        if (isSubmitting || currentSkyId === null) return;
+
+        const shouldDelete = window.confirm(
+            `「${currentSkyTitle}」を削除します。\nこの空にある星もすべて消えますがよろしいですか？`,
+        );
+        if (!shouldDelete) return;
+
+        const remainingSkyPages = skyPages.filter((sky) => sky.id !== currentSkyId);
+        const fallbackSkyId = remainingSkyPages[Math.max(0, currentSkyIndex - 1)]?.id
+            ?? remainingSkyPages[0]?.id
+            ?? null;
+
+        try {
+            resetSkyScene();
+            setConstellations([]);
+            setStarCount(0);
+            setTodayCheckinCount(0);
+            setCurrentSkyId(null);
+            localStorage.removeItem(CURRENT_SKY_PAGE_STORAGE_KEY);
+
+            await deleteSkyPages([currentSkyId]);
+
+            if (fallbackSkyId !== null) {
+                await loadData(fallbackSkyId);
+                if (viewMode === 'zukan') {
+                    await loadZukan(fallbackSkyId);
+                }
+            } else {
+                await loadData();
+                if (viewMode === 'zukan') {
+                    await loadZukan();
+                }
+            }
+
+            showToast(`「${currentSkyTitle}」を削除しました。`, 2400);
+        } catch (err) {
+            console.error('Failed to delete current sky:', err);
+            showToast('空の削除に失敗しました。時間をおいて再試行してください。', 3200);
+        }
+    }, [
+        currentSkyId,
+        currentSkyIndex,
+        currentSkyTitle,
+        deleteSkyPages,
+        isSubmitting,
+        loadData,
+        loadZukan,
+        resetSkyScene,
+        showToast,
+        skyPages,
+        viewMode,
+    ]);
 
     const isSkyUiSlideHidden = viewMode === 'sky' && isSkyUiHidden;
     const isDailyLimitReached = todayCheckinCount >= DAILY_CHECKIN_LIMIT;
@@ -917,10 +1111,7 @@ function App() {
                         </button>
                         <button
                             className={`nav-btn nav-btn-img ${viewMode === 'zukan' ? 'active' : ''}`}
-                            onClick={() => {
-                                setViewMode('zukan');
-                                loadZukan();
-                            }}
+                            onClick={() => setViewMode('zukan')}
                             aria-label="図鑑"
                         >
                             <img src={button02Url} alt="図鑑" className="nav-btn-image" />
@@ -1106,14 +1297,42 @@ function App() {
                 <div className="zukan-view">
                     <div className="zukan-container">
                         <div className="zukan-meta">
-                            <span className="star-counter">星の数 {starCount}</span>
+                            <div className="zukan-meta-main">
+                                <span className="zukan-sky-title">{currentSkyTitle}</span>
+                                <span className="zukan-sky-count">{currentSkyProgressText}</span>
+                                <span className="star-counter">星の数 {starCount}</span>
+                            </div>
+                            <div className="zukan-sky-controls">
+                                <button
+                                    type="button"
+                                    className="zukan-sky-btn"
+                                    onClick={() => {
+                                        if (!canMoveToPrevSky) return;
+                                        void handleSelectSky(skyPages[currentSkyIndex - 1].id);
+                                    }}
+                                    disabled={!canMoveToPrevSky}
+                                >
+                                    前の空
+                                </button>
+                                <button
+                                    type="button"
+                                    className="zukan-sky-btn"
+                                    onClick={() => {
+                                        if (!canMoveToNextSky) return;
+                                        void handleSelectSky(skyPages[currentSkyIndex + 1].id);
+                                    }}
+                                    disabled={!canMoveToNextSky}
+                                >
+                                    次の空
+                                </button>
+                            </div>
                         </div>
 
                         {constellations.length === 0 ? (
                             <div className="zukan-empty">
                                 <p className="zukan-empty-icon">🌌</p>
-                                <p>まだ星座は完成していません</p>
-                                <p className="zukan-empty-hint">星を5つ追加すると、最初の星座が完成します</p>
+                                <p>{currentSkyTitle} にはまだ星座がありません</p>
+                                <p className="zukan-empty-hint">星を5つ追加すると、この空の最初の星座が完成します</p>
                             </div>
                         ) : (
                             <div className="zukan-grid">
@@ -1135,15 +1354,61 @@ function App() {
 
                         <div className="zukan-footer">
                             <button
-                                className="nav-btn danger zukan-clear-btn"
-                                onClick={handleClearAllData}
-                                disabled={isSubmitting || starCount === 0}
-                                title="全データをクリア"
-                                aria-label="全データをクリア"
+                                className="nav-btn zukan-new-sky-btn"
+                                onClick={() => void handleCreateNewSky()}
+                                disabled={isSubmitting}
+                                title="新しい空をつくる"
+                                aria-label="新しい空をつくる"
                             >
-                                空をクリアに
+                                新しい空をつくる
+                            </button>
+                            <button
+                                className="nav-btn danger zukan-delete-sky-btn"
+                                onClick={() => void handleDeleteCurrentSky()}
+                                disabled={isSubmitting || currentSkyId === null}
+                                title="この空を削除"
+                                aria-label="この空を削除"
+                            >
+                                この空を削除
+                            </button>
+                            <button
+                                className="nav-btn zukan-other-settings-btn"
+                                onClick={() => setIsOtherSettingsOpen(true)}
+                                disabled={isSubmitting}
+                                title="その他の設定"
+                                aria-label="その他の設定"
+                            >
+                                その他の設定
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {isOtherSettingsOpen && (
+                <div className="other-settings-overlay" onClick={() => setIsOtherSettingsOpen(false)}>
+                    <div className="other-settings-modal" onClick={(e) => e.stopPropagation()}>
+                        <button
+                            type="button"
+                            className="other-settings-close-btn"
+                            onClick={() => setIsOtherSettingsOpen(false)}
+                            aria-label="閉じる"
+                        >
+                            ✕
+                        </button>
+                        <h2 className="other-settings-title">その他の設定</h2>
+                        <p className="other-settings-note">この操作は元に戻せません。</p>
+                        <button
+                            type="button"
+                            className="other-settings-reset-btn"
+                            onClick={() => {
+                                setIsOtherSettingsOpen(false);
+                                handleClearAllData();
+                            }}
+                            disabled={isSubmitting || !canResetAllData}
+                        >
+                            すべての星と空をリセット
+                        </button>
                     </div>
                 </div>
             )}
