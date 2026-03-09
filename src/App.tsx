@@ -470,9 +470,7 @@ function App() {
 
         const { start, end } = getDayRange();
         const todayCount = await db.stars
-            .where('skyId')
-            .equals(skyId)
-            .and((star) => star.createdAt >= start && star.createdAt < end)
+            .filter((star) => star.createdAt >= start && star.createdAt < end)
             .count();
         setTodayCheckinCount(todayCount);
     }, [currentSkyId, syncSkyPages]);
@@ -830,7 +828,7 @@ function App() {
             if (currentSkyId === null) return;
 
             if (todayCheckinCount >= DAILY_CHECKIN_LIMIT) {
-                showToast('今日は5つまで星を追加できます。続きは明日。', 3600);
+                showToast(`今日は${DAILY_CHECKIN_LIMIT}個まで星を追加できます。続きは明日。`, 3600);
                 return;
             }
 
