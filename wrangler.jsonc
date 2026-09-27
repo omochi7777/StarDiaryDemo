@@ -1,0 +1,11 @@
+// Cloudflare Workers の公開設定（Workers Builds が本番・プレビューの両方で使う）
+{
+  "name": "stardiarydemo",
+  "compatibility_date": "2026-09-25",
+  "assets": {
+    // npm run build の出力先
+    "directory": "./dist",
+    // 存在しないURLでもアプリ（index.html）を表示する
+    "not_found_handling": "single-page-application"
+  }
+}
