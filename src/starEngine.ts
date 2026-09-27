@@ -6,6 +6,8 @@ import { getRandomConstellationName } from './constellationNames';
 // グリッド設定
 const GRID_COLS = 12;
 const GRID_ROWS = 8;
+// 1つの空に置ける星の最大数（グリッドのマス数）
+export const SKY_STAR_CAPACITY = GRID_COLS * GRID_ROWS;
 const JITTER = 0.3; // グリッド内のランダムずれ幅（0-1）
 const CLUSTER_RADIUS = 2.4;
 const CLUSTER_FALLBACK_RADIUS = 3.2;

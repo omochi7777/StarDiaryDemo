@@ -829,6 +829,8 @@
     border: 1px solid rgba(255, 255, 255, 0.42);
     border-radius: 24px;
     padding: 34px 24px 24px;
+    max-height: min(88vh, 720px);
+    overflow-y: auto;
     box-shadow:
         0 20px 60px rgba(4, 6, 22, 0.35),
         0 0 0 1px rgba(255, 255, 255, 0.14),
@@ -879,6 +881,102 @@
     font-weight: 500;
     color: rgba(58, 48, 80, 0.78);
     line-height: 1.6;
+}
+
+.other-settings-section {
+    padding: 14px 0;
+    border-top: 1px dashed rgba(90, 72, 130, 0.25);
+}
+
+.other-settings-section:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.other-settings-section:last-of-type {
+    padding-bottom: 0;
+}
+
+.other-settings-section-title {
+    font-family: var(--font-main);
+    font-size: 15px;
+    font-weight: 700;
+    color: #3a2d58;
+    margin-bottom: 6px;
+    letter-spacing: 0.05em;
+}
+
+.other-settings-text {
+    font-family: var(--font-main);
+    font-size: 13px;
+    color: rgba(58, 48, 80, 0.85);
+    line-height: 1.7;
+    margin-bottom: 8px;
+}
+
+.other-settings-hint {
+    font-family: var(--font-main);
+    font-size: 12px;
+    color: rgba(58, 48, 80, 0.65);
+    line-height: 1.6;
+    margin-top: 6px;
+}
+
+.storage-status {
+    display: inline-block;
+    font-family: var(--font-main);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+}
+
+.storage-status-persisted {
+    color: #4b3a12;
+    background: rgba(255, 224, 130, 0.55);
+}
+
+.storage-status-best-effort,
+.storage-status-unsupported {
+    color: #5a3a3f;
+    background: rgba(214, 190, 220, 0.5);
+}
+
+.letter-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.other-settings-soft-btn {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    border: 1px solid rgba(90, 72, 130, 0.3);
+    border-radius: 999px;
+    background: rgba(255, 252, 240, 0.85);
+    color: #3a2d58;
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+.other-settings-soft-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: rgba(255, 249, 220, 0.95);
+}
+
+.other-settings-soft-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.letter-file-input {
+    display: none;
 }
 
 .other-settings-reset-btn {

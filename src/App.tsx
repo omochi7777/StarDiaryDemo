@@ -1,7 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { db } from './db';
 import type { SkyPage, Star } from './db';
-import { addStar, type AddStarStyle } from './starEngine';
+import { addStar, SKY_STAR_CAPACITY, type AddStarStyle } from './starEngine';
+import { createSkyLetter, readSkyLetter, restoreSkyLetter } from './backup';
+import {
+    getStoragePersistState,
+    isIosDevice,
+    isStandaloneDisplay,
+    requestStoragePersist,
+    type StoragePersistState,
+} from './persistence';
 import {
     render,
     initRenderer,
@@ -24,6 +32,10 @@ const SKY_THEME_STORAGE_KEY = 'stardiary.skyThemePreset';
 const CONSTELLATION_LINES_STORAGE_KEY = 'stardiary.showConstellationLines';
 const SOUND_ENABLED_STORAGE_KEY = 'stardiary.soundEnabled';
 const CURRENT_SKY_PAGE_STORAGE_KEY = 'stardiary.currentSkyPageId';
+const LAST_LETTER_AT_STORAGE_KEY = 'stardiary.lastLetterAt';
+const LAST_LETTER_REMINDER_STORAGE_KEY = 'stardiary.lastLetterReminderAt';
+const LETTER_REMINDER_INTERVAL_DAYS = 30;
+const LETTER_REMINDER_MIN_STARS = 10;
 const DAILY_CHECKIN_LIMIT = 10;
 const SKY_PAGE_LIMIT = 8;
 const STAR_STORAGE_LIMIT = 600;
@@ -140,6 +152,17 @@ function parseStoredSkyPageId(): number | null {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parseStoredDate(key: string): Date | null {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysSince(date: Date, now = new Date()): number {
+    return (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+}
+
 function getNextSkyTitle(pages: Array<Pick<SkyPage, 'title'>>): string {
     let maxNumber = 0;
 
@@ -162,6 +185,10 @@ function App() {
     const [skyPages, setSkyPages] = useState<SkyPageSummary[]>([]);
     const [currentSkyId, setCurrentSkyId] = useState<number | null>(null);
     const [starCount, setStarCount] = useState(0);
+    const [totalStarCount, setTotalStarCount] = useState(0);
+    const [storagePersistState, setStoragePersistState] = useState<StoragePersistState>('unsupported');
+    const [lastLetterAt, setLastLetterAt] = useState<Date | null>(null);
+    const [isLetterBusy, setIsLetterBusy] = useState(false);
     const [completionMessage, setCompletionMessage] = useState<string | null>(null);
     const [skyThemePreset, setSkyThemePreset] = useState<SkyThemePreset>('auto');
     const [isSkySettingsOpen, setIsSkySettingsOpen] = useState(false);
@@ -196,6 +223,9 @@ function App() {
     const skyTapTimerRef = useRef<number | null>(null);
     const dragMovedRef = useRef(false);
     const toastTimerRef = useRef<number | null>(null);
+    const letterInputRef = useRef<HTMLInputElement>(null);
+    const hasRequestedPersistRef = useRef(false);
+    const hasCheckedLetterReminderRef = useRef(false);
 
     // パン・ズーム用Ref
     const isDraggingRef = useRef(false);
@@ -367,60 +397,20 @@ function App() {
     }, []);
 
     const syncSkyPages = useCallback(async (preferredSkyId?: number | null): Promise<number> => {
-        let pages = await db.skyPages.orderBy('createdAt').toArray();
-
-        if (pages.length === 0) {
-            const now = new Date();
-            const skyId = await db.skyPages.add({
-                title: '空 1',
-                createdAt: now,
-                lastOpenedAt: now,
-            });
-            pages = await db.skyPages.orderBy('createdAt').toArray();
-            if (!pages.some((page) => page.id === skyId)) {
-                throw new Error('最初の空の作成に失敗しました');
+        // 読み込みが同時に走っても最初の空が重複しないよう、確認と作成を1つのトランザクションで行う
+        const pages = await db.transaction('rw', db.skyPages, async () => {
+            if (await db.skyPages.count() === 0) {
+                const now = new Date();
+                await db.skyPages.add({
+                    title: '空 1',
+                    createdAt: now,
+                    lastOpenedAt: now,
+                });
             }
-        }
+            return db.skyPages.orderBy('createdAt').toArray();
+        });
 
-        const removeSkyIds = new Set<number>();
-
-        if (pages.length > SKY_PAGE_LIMIT) {
-            for (const page of pages.slice(0, pages.length - SKY_PAGE_LIMIT)) {
-                if (typeof page.id === 'number') {
-                    removeSkyIds.add(page.id);
-                }
-            }
-        }
-
-        let totalStars = await db.stars.count();
-        for (const page of pages) {
-            if (totalStars <= STAR_STORAGE_LIMIT) break;
-            if (typeof page.id !== 'number' || removeSkyIds.has(page.id)) continue;
-            if (pages.length - removeSkyIds.size <= 1) break;
-
-            const pageStarCount = await db.stars.where('skyId').equals(page.id).count();
-            removeSkyIds.add(page.id);
-            totalStars -= pageStarCount;
-        }
-
-        if (removeSkyIds.size > 0) {
-            await deleteSkyPages([...removeSkyIds]);
-            pages = await db.skyPages.orderBy('createdAt').toArray();
-        }
-
-        if (pages.length === 0) {
-            const now = new Date();
-            const skyId = await db.skyPages.add({
-                title: '空 1',
-                createdAt: now,
-                lastOpenedAt: now,
-            });
-            pages = await db.skyPages.orderBy('createdAt').toArray();
-            if (!pages.some((page) => page.id === skyId)) {
-                throw new Error('空の復元に失敗しました');
-            }
-        }
-
+        // 上限を超えていても古い空を自動で消すことはしない（追加側で止める）
         const storedSkyId = parseStoredSkyPageId();
         const activePage = pages.find((page) => page.id === preferredSkyId)
             ?? pages.find((page) => page.id === storedSkyId)
@@ -445,7 +435,7 @@ function App() {
         localStorage.setItem(CURRENT_SKY_PAGE_STORAGE_KEY, String(activePage.id));
 
         return activePage.id;
-    }, [deleteSkyPages]);
+    }, []);
 
     // データ読み込み
     const loadData = useCallback(async (preferredSkyId?: number | null) => {
@@ -467,6 +457,7 @@ function App() {
         renderStateRef.current.stars = visibleStars;
         renderStateRef.current.lines = lines;
         setStarCount(allStars.length);
+        setTotalStarCount(await db.stars.count());
 
         const { start, end } = getDayRange();
         const todayCount = await db.stars
@@ -509,7 +500,29 @@ function App() {
         if (storedSoundEnabled === '0') {
             setIsSoundEnabled(false);
         }
+
+        setLastLetterAt(parseStoredDate(LAST_LETTER_AT_STORAGE_KEY));
+        void getStoragePersistState().then(setStoragePersistState);
     }, []);
+
+    // しばらく手紙を書いていなければ、そっと声をかける
+    useEffect(() => {
+        if (hasCheckedLetterReminderRef.current) return;
+        if (totalStarCount < LETTER_REMINDER_MIN_STARS) return;
+        hasCheckedLetterReminderRef.current = true;
+
+        void (async () => {
+            const lastReminderAt = parseStoredDate(LAST_LETTER_REMINDER_STORAGE_KEY);
+            if (lastReminderAt && daysSince(lastReminderAt) < LETTER_REMINDER_INTERVAL_DAYS) return;
+
+            const since = parseStoredDate(LAST_LETTER_AT_STORAGE_KEY)
+                ?? (await db.stars.orderBy('createdAt').first())?.createdAt;
+            if (!since || daysSince(since) < LETTER_REMINDER_INTERVAL_DAYS) return;
+
+            localStorage.setItem(LAST_LETTER_REMINDER_STORAGE_KEY, new Date().toISOString());
+            showToast('✉ そろそろ星空の手紙を書きませんか？（図鑑 › その他の設定）', 4000);
+        })();
+    }, [showToast, totalStarCount]);
 
     useEffect(() => {
         renderStateRef.current.skyThemePreset = skyThemePreset;
@@ -831,6 +844,14 @@ function App() {
                 showToast(`今日は${DAILY_CHECKIN_LIMIT}個まで星を追加できます。続きは明日。`, 3600);
                 return;
             }
+            if (totalStarCount >= STAR_STORAGE_LIMIT) {
+                showToast('星をしまう場所がいっぱいです。図鑑から空を選んで整理してください。', 4000);
+                return;
+            }
+            if (starCount >= SKY_STAR_CAPACITY) {
+                showToast('この空は星でいっぱいです。図鑑で新しい空をつくりましょう。', 4000);
+                return;
+            }
 
             setIsSubmitting(true);
             const checkinAt = new Date();
@@ -865,6 +886,11 @@ function App() {
 
                 await loadData(currentSkyId);
                 playStarChime();
+
+                if (!hasRequestedPersistRef.current) {
+                    hasRequestedPersistRef.current = true;
+                    void requestStoragePersist().then(setStoragePersistState);
+                }
 
                 if (result.constellationCompleted && result.constellationName) {
                     const starsInConstellation = renderStateRef.current.stars.filter(
@@ -919,13 +945,24 @@ function App() {
                 setIsSubmitting(false);
             }
         },
-        [currentSkyId, isSubmitting, loadData, playStarChime, showToast, todayCheckinCount],
+        [
+            currentSkyId,
+            isSubmitting,
+            loadData,
+            playStarChime,
+            showToast,
+            starCount,
+            todayCheckinCount,
+            totalStarCount,
+        ],
     );
 
     const handleClearAllData = useCallback(async () => {
-        if (isSubmitting || starCount === 0) return;
+        if (isSubmitting || (totalStarCount === 0 && skyPages.length <= 1)) return;
 
-        const shouldClear = window.confirm('記録したすべての星と空を削除します。よろしいですか？');
+        const shouldClear = window.confirm(
+            '記録したすべての星と空を削除します。よろしいですか？\n（星空の手紙を書いておくと、あとでもどせます）',
+        );
         if (!shouldClear) return;
 
         try {
@@ -940,6 +977,7 @@ function App() {
 
             resetSkyScene();
             setStarCount(0);
+            setTotalStarCount(0);
             setConstellations([]);
             setSkyPages([]);
             setCurrentSkyId(null);
@@ -953,7 +991,81 @@ function App() {
         } catch (err) {
             console.error('Failed to clear all data:', err);
         }
-    }, [isSubmitting, loadData, loadZukan, resetSkyScene, starCount, viewMode]);
+    }, [isSubmitting, loadData, loadZukan, resetSkyScene, skyPages.length, totalStarCount, viewMode]);
+
+    const handleWriteLetter = useCallback(async () => {
+        if (isLetterBusy) return;
+        setIsLetterBusy(true);
+        try {
+            const { blob, fileName, summary } = await createSkyLetter();
+            downloadBlob(blob, fileName);
+            const writtenAt = summary.exportedAt ?? new Date();
+            localStorage.setItem(LAST_LETTER_AT_STORAGE_KEY, writtenAt.toISOString());
+            setLastLetterAt(writtenAt);
+            showToast(`✉ ${summary.skyCount}つの空と${summary.starCount}個の星を手紙にしました。`, 3200);
+        } catch (err) {
+            console.error('Failed to write sky letter:', err);
+            showToast('手紙を書けませんでした。時間をおいて再試行してください。', 3200);
+        } finally {
+            setIsLetterBusy(false);
+        }
+    }, [downloadBlob, isLetterBusy, showToast]);
+
+    const handleLetterFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        // 同じファイルを続けて選べるようにリセットする
+        e.target.value = '';
+        if (!file || isLetterBusy || isSubmitting) return;
+
+        setIsLetterBusy(true);
+        try {
+            let parsed: Awaited<ReturnType<typeof readSkyLetter>>;
+            try {
+                parsed = await readSkyLetter(file);
+            } catch (err) {
+                console.error('Failed to read sky letter:', err);
+                showToast('この手紙は読めませんでした。Star Diary で書いた手紙を選んでください。', 4000);
+                return;
+            }
+
+            const { letter, summary } = parsed;
+            const writtenOn = summary.exportedAt
+                ? `${summary.exportedAt.toLocaleDateString('ja-JP')} に書いた`
+                : '';
+            const shouldRestore = window.confirm(
+                `${writtenOn}手紙から、${summary.skyCount}つの空と${summary.starCount}個の星をもどします。\n`
+                + 'いまの星空は、手紙の星空に置きかわります。よろしいですか？',
+            );
+            if (!shouldRestore) return;
+
+            await restoreSkyLetter(letter);
+
+            resetSkyScene();
+            setConstellations([]);
+            setCurrentSkyId(null);
+            localStorage.removeItem(CURRENT_SKY_PAGE_STORAGE_KEY);
+            setIsOtherSettingsOpen(false);
+
+            await loadData(null);
+            if (viewMode === 'zukan') {
+                await loadZukan(null);
+            }
+            showToast('✉ 手紙から星空がもどりました。', 3200);
+        } catch (err) {
+            console.error('Failed to restore sky letter:', err);
+            showToast('星空をもどせませんでした。いまの星空はそのままです。', 4000);
+        } finally {
+            setIsLetterBusy(false);
+        }
+    }, [isLetterBusy, isSubmitting, loadData, loadZukan, resetSkyScene, showToast, viewMode]);
+
+    const handleRequestPersist = useCallback(async () => {
+        const state = await requestStoragePersist();
+        setStoragePersistState(state);
+        if (state !== 'persisted') {
+            showToast('いまはブラウザにおまかせになっています。手紙を書いておくと安心です。', 4000);
+        }
+    }, [showToast]);
 
     const handleSelectSky = useCallback(async (skyId: number) => {
         if (skyId === currentSkyId) return;
@@ -974,6 +1086,11 @@ function App() {
         if (isSubmitting) return;
 
         const pages = await db.skyPages.orderBy('createdAt').toArray();
+        if (pages.length >= SKY_PAGE_LIMIT) {
+            showToast(`空は${SKY_PAGE_LIMIT}つまでです。使わなくなった空を削除すると、新しい空をつくれます。`, 4000);
+            return;
+        }
+
         const now = new Date();
         const nextSkyId = await db.skyPages.add({
             title: getNextSkyTitle(pages),
@@ -1001,7 +1118,7 @@ function App() {
     const currentSkyProgressText = skyPages.length > 0 && currentSkyIndex >= 0
         ? `${currentSkyIndex + 1} / ${skyPages.length}`
         : '1 / 1';
-    const canResetAllData = skyPages.length > 1 || starCount > 0;
+    const canResetAllData = skyPages.length > 1 || totalStarCount > 0;
 
     const handleDeleteCurrentSky = useCallback(async () => {
         if (isSubmitting || currentSkyId === null) return;
@@ -1059,19 +1176,25 @@ function App() {
 
     const isSkyUiSlideHidden = viewMode === 'sky' && isSkyUiHidden;
     const isDailyLimitReached = todayCheckinCount >= DAILY_CHECKIN_LIMIT;
-    const checkinDisabled = isSubmitting || isDailyLimitReached;
+    const isStorageFull = totalStarCount >= STAR_STORAGE_LIMIT;
+    const isSkyFull = starCount >= SKY_STAR_CAPACITY;
+    const checkinDisabled = isSubmitting || isDailyLimitReached || isStorageFull || isSkyFull;
     const expandedTab = expandedTabKey
         ? REFLECTION_TABS.find((tab) => tab.key === expandedTabKey) ?? null
         : null;
     const isCheckinSubmenuOpen = viewMode === 'sky' && expandedTab !== null;
     const showHelpFab = !isCheckinSubmenuOpen && !(viewMode === 'sky' && isSkyUiHidden);
-    const checkinStatusText = isDailyLimitReached
-        ? '星にしたい言葉を選ぶ　明日また追加できます。'
-        : isSubmitting
-            ? '星を描いています…'
-            : expandedTab
-                ? `「${expandedTab.label}」から言葉を選べます。`
-                : 'タブを押すと、言葉の候補が開きます。※星ができるときに音が出ます';
+    const checkinStatusText = isStorageFull
+        ? '星をしまう場所がいっぱいです。図鑑で空を整理してください。'
+        : isSkyFull
+            ? 'この空は星でいっぱいです。図鑑で新しい空をつくれます。'
+            : isDailyLimitReached
+                ? '星にしたい言葉を選ぶ　明日また追加できます。'
+                : isSubmitting
+                    ? '星を描いています…'
+                    : expandedTab
+                        ? `「${expandedTab.label}」から言葉を選べます。`
+                        : 'タブを押すと、言葉の候補が開きます。※星ができるときに音が出ます';
 
     return (
         <div className={`app ${isInputTrayOpen ? 'input-tray-open' : ''}`}>
@@ -1395,18 +1518,87 @@ function App() {
                             ✕
                         </button>
                         <h2 className="other-settings-title">その他の設定</h2>
-                        <p className="other-settings-note">この操作は元に戻せません。</p>
-                        <button
-                            type="button"
-                            className="other-settings-reset-btn"
-                            onClick={() => {
-                                setIsOtherSettingsOpen(false);
-                                handleClearAllData();
-                            }}
-                            disabled={isSubmitting || !canResetAllData}
-                        >
-                            すべての星と空をリセット
-                        </button>
+
+                        <section className="other-settings-section">
+                            <h3 className="other-settings-section-title">星空のしまい場所</h3>
+                            <p className="other-settings-text">
+                                星空は、この端末のブラウザの中だけにしまわれています。
+                            </p>
+                            <p className={`storage-status storage-status-${storagePersistState}`}>
+                                {storagePersistState === 'persisted'
+                                    ? '✦ ブラウザが大切に保管しています'
+                                    : '△ ブラウザの都合で消えることがあります'}
+                            </p>
+                            {storagePersistState === 'best-effort' && (
+                                <button
+                                    type="button"
+                                    className="other-settings-soft-btn"
+                                    onClick={() => void handleRequestPersist()}
+                                >
+                                    大切に保管してもらう
+                                </button>
+                            )}
+                            {storagePersistState !== 'persisted' && isIosDevice() && !isStandaloneDisplay() && (
+                                <p className="other-settings-hint">
+                                    ホーム画面に追加して開くと、星空が消えにくくなります。
+                                </p>
+                            )}
+                            <p className="other-settings-hint">
+                                しまってある星 {totalStarCount} / {STAR_STORAGE_LIMIT}・空 {skyPages.length} / {SKY_PAGE_LIMIT}
+                            </p>
+                        </section>
+
+                        <section className="other-settings-section">
+                            <h3 className="other-settings-section-title">星空の手紙</h3>
+                            <p className="other-settings-text">
+                                星空を手紙にしておくと、機種変更のときや、もしものときに星空をもどせます。
+                            </p>
+                            <div className="letter-actions">
+                                <button
+                                    type="button"
+                                    className="other-settings-soft-btn"
+                                    onClick={() => void handleWriteLetter()}
+                                    disabled={isLetterBusy || isSubmitting}
+                                >
+                                    ✉ 手紙を書く
+                                </button>
+                                <button
+                                    type="button"
+                                    className="other-settings-soft-btn"
+                                    onClick={() => letterInputRef.current?.click()}
+                                    disabled={isLetterBusy || isSubmitting}
+                                >
+                                    手紙から星空をもどす
+                                </button>
+                            </div>
+                            <input
+                                ref={letterInputRef}
+                                type="file"
+                                accept="application/json,.json"
+                                className="letter-file-input"
+                                onChange={(e) => void handleLetterFileChange(e)}
+                            />
+                            <p className="other-settings-hint">
+                                {lastLetterAt
+                                    ? `最後に手紙を書いた日：${lastLetterAt.toLocaleDateString('ja-JP')}`
+                                    : 'まだ手紙を書いていません'}
+                            </p>
+                        </section>
+
+                        <section className="other-settings-section">
+                            <p className="other-settings-note">この操作は元に戻せません。</p>
+                            <button
+                                type="button"
+                                className="other-settings-reset-btn"
+                                onClick={() => {
+                                    setIsOtherSettingsOpen(false);
+                                    handleClearAllData();
+                                }}
+                                disabled={isSubmitting || !canResetAllData}
+                            >
+                                すべての星と空をリセット
+                            </button>
+                        </section>
                     </div>
                 </div>
             )}
